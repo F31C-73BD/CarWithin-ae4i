@@ -1,0 +1,8 @@
+name: ping macos-15
+on:
+  workflow_dispatch:
+jobs:
+  ping:
+    runs-on: macos-15
+    steps:
+      - run: sw_vers

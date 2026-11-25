@@ -58,8 +58,10 @@ struct ZeehoSEPlusSizeSmoke {
         precondition(TailingDisplayProfile.tailing43.outputSize(for: original) == nil)
         let ae4i = TailingDisplayProfile.zeehoAE4i
         precondition(ae4i.preferredSize == InstrumentFrameSize(width: 2048, height: 968))
-        precondition(ae4i.bitrateScale == 4 && sePlus.bitrateScale == 1
+        precondition(ae4i.bitrateScale == 6 && sePlus.bitrateScale == 1
                      && TailingDisplayProfile.zeeho62.bitrateScale == 1 && TailingDisplayProfile.tailing43.bitrateScale == 1)
+        precondition(ae4i.prioritizesEncodingQuality)
+        precondition(!sePlus.prioritizesEncodingQuality && !TailingDisplayProfile.zeeho62.prioritizesEncodingQuality)
         for (w, h) in [(2048, 968), (2048, 960), (2048, 976), (1024, 480), (1024, 484), (1440, 720), (1920, 1080)] {
             let reported = InstrumentFrameSize(width: w, height: h)
             precondition(ae4i.outputSize(for: reported) == reported)

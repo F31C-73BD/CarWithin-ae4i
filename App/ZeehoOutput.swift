@@ -16,10 +16,11 @@ final class ZeehoOutput {
                onLog: @escaping (String) -> Void, requestKeyframe: @escaping () -> Void) {
         stop()
         // 2048×968 这类 2 倍面板按像素数放大码率，否则 2.5 Mbit/s 撑不住 4 倍像素。
-        let bitrate = min(12_000_000, Int((Double(frameRate.bitrate) * profile.bitrateScale).rounded()))
+        let bitrate = min(20_000_000, Int((Double(frameRate.bitrate) * profile.bitrateScale).rounded()))
         let next = Session(queue: queue, localAddress: localAddress, targetAddress: targetAddress,
                            profile: profile, frameRate: frameRate, videoMode: videoMode,
-                           sourceSize: sourceSize ?? profile.preferredSize, bitrate: bitrate, phone: phone,
+                           sourceSize: sourceSize ?? profile.preferredSize, bitrate: bitrate,
+                           prioritizeQuality: profile.prioritizesEncodingQuality, phone: phone,
                            onState: onState, onLog: onLog, requestKeyframe: requestKeyframe)
         session = next
         next.start()
@@ -55,6 +56,7 @@ final class ZeehoOutput {
         private let frameRate: ZeehoFrameRate
         private let sourceSize: InstrumentFrameSize
         private let bitrate: Int
+        private let prioritizeQuality: Bool
         private var usesRelay: Bool
         private var isRelaying: Bool { lock.withLock { usesRelay } }
         private let relayCondition = NSCondition()
@@ -79,6 +81,7 @@ final class ZeehoOutput {
         private var lastCodecFailure = -Double.infinity
         private var nextHeartbeat = 0.0
         private var counter: UInt32 = 0
+        private var loggedSource = false
         private var lastReply: Double?
         private var sentPicture = false
         private var status = ""
@@ -86,12 +89,14 @@ final class ZeehoOutput {
         init(queue: DispatchQueue, localAddress: String, targetAddress: String, profile: TailingDisplayProfile,
              frameRate: ZeehoFrameRate,
              videoMode: ZeehoVideoMode, sourceSize: InstrumentFrameSize, bitrate: Int,
+             prioritizeQuality: Bool,
              phone: TailingPhoneInfo, onState: @escaping (String) -> Void, onLog: @escaping (String) -> Void,
              requestKeyframe: @escaping () -> Void) {
             self.queue = queue
             self.frameRate = frameRate
             self.sourceSize = sourceSize
             self.bitrate = bitrate
+            self.prioritizeQuality = prioritizeQuality
             self.usesRelay = profile == .zeehoSEPlus && videoMode.effective(for: frameRate) == .relay
             self.connection = TailingConnection(localIP: localAddress, targetIP: targetAddress,
                 profile: profile, phone: phone, log: onLog)
@@ -335,10 +340,17 @@ final class ZeehoOutput {
 
         private func encode(_ image: CVPixelBuffer, size: InstrumentFrameSize, at now: Double, forceKeyframe: Bool) -> H264EncodedFrame? {
             do {
+                if !loggedSource {
+                    loggedSource = true
+                    let source = InstrumentFrameSize(width: CVPixelBufferGetWidth(image),
+                                                     height: CVPixelBufferGetHeight(image))
+                    onLog("极核源画面 \(source) → 输出 \(size)\(source == size ? "（一比一）" : "（\(source) 已缩放）")")
+                }
                 if encoder == nil {
                     guard now - lastCodecFailure >= 0.5 else { return nil }
                     encoder = try H264Encoder(width: size.width, height: size.height,
-                                              fps: frameRate.rawValue, bitrate: bitrate) { [weak self] result in
+                                              fps: frameRate.rawValue, bitrate: bitrate,
+                                              prioritizeQuality: prioritizeQuality) { [weak self] result in
                         guard let self else { return }
                         self.lock.withLock { self.encoded = result }
                     }

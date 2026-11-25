@@ -103,10 +103,15 @@ final class H264Encoder {
     private var session: VTCompressionSession?
     private let callbackBox = H264CallbackBox()
     private let fps: Int
+    /// 高像素密度的仪表（例如 2048×968 的 2 倍屏）文字边缘对量化更敏感，
+    /// 打开后不再让编码器优先编码速度。
+    private let prioritizeQuality: Bool
 
-    init(width: Int, height: Int, fps: Int, bitrate: Int, profileLevel: CFString = kVTProfileLevel_H264_Baseline_AutoLevel,
+    init(width: Int, height: Int, fps: Int, bitrate: Int, prioritizeQuality: Bool = false,
+         profileLevel: CFString = kVTProfileLevel_H264_Baseline_AutoLevel,
          output: @escaping (Result<H264EncodedFrame, Error>) -> Void) throws {
         self.fps = fps
+        self.prioritizeQuality = prioritizeQuality
         callbackBox.handler = output
 
         let attributes: [CFString: Any] = [
@@ -162,8 +167,13 @@ final class H264Encoder {
             let byteLimit = max(1, bitrate * 3 / 2 / 8)
             try set(kVTCompressionPropertyKey_DataRateLimits, value: [byteLimit, 1] as CFArray)
             // 低延迟：不缓存帧，尽量优先编码速度。部分设备不支持，失败时忽略。
-            try? set(kVTCompressionPropertyKey_MaxFrameDelayCount, value: 0 as CFNumber)
-            try? set(kVTCompressionPropertyKey_PrioritizeEncodingSpeedOverQuality, value: kCFBooleanTrue)
+            // 2 倍屏文字优先画质时不走这一套，换取更干净的边缘。
+            if prioritizeQuality {
+                try? set(kVTCompressionPropertyKey_PrioritizeEncodingSpeedOverQuality, value: kCFBooleanFalse)
+            } else {
+                try? set(kVTCompressionPropertyKey_MaxFrameDelayCount, value: 0 as CFNumber)
+                try? set(kVTCompressionPropertyKey_PrioritizeEncodingSpeedOverQuality, value: kCFBooleanTrue)
+            }
             let prepareStatus = VTCompressionSessionPrepareToEncodeFrames(created)
             guard prepareStatus == noErr else { throw H264EncoderError.prepare(prepareStatus) }
         }

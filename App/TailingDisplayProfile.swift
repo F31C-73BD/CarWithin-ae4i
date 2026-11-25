@@ -110,13 +110,16 @@ enum TailingDisplayProfile: Equatable, Sendable {
     }
 
     /// 编码码率随仪表输出像素数放大。旧款 6.2 寸 1024×480 用 2.5 Mbit/s 实测可用，
-    /// 2048×968 的像素数是它的 4 倍，沿用同样的每像素码率才不会糊。
+    /// 2048×968 的像素数是它的 4 倍；再留一点余量给文字边缘，取 6 倍。
     var bitrateScale: Double {
         switch self {
-        case .zeehoAE4i: return 4
+        case .zeehoAE4i: return 6
         default: return 1
         }
     }
+
+    /// 2 倍屏上的文字边缘对量化很敏感，编码时优先画质而不是编码速度。
+    var prioritizesEncodingQuality: Bool { self == .zeehoAE4i }
 
     func outputSize(for reported: InstrumentFrameSize) -> InstrumentFrameSize? {
         switch self {

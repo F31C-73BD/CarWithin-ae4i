@@ -1,0 +1,70 @@
+name: Build unsigned IPA
+
+# 没有 Mac 也能出包：在 GitHub 的 macOS 运行器上编译，产物是未签名的 .ipa，
+# 下载后用 Sideloadly / AltStore / TrollStore 等按自己的方式签名安装。
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          xcode-select -p
+          xcrun --sdk iphoneos --show-sdk-version
+
+      - name: Build unsigned app
+        run: |
+          set -o pipefail
+          xcodebuild \
+            -project TDSCarKit.xcodeproj \
+            -scheme TDSCarKit \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$RUNNER_TEMP/DerivedData" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGN_ENTITLEMENTS="" \
+            DEVELOPMENT_TEAM="" \
+            build
+
+      - name: Package unsigned IPA
+        run: |
+          set -euo pipefail
+          PRODUCTS="$RUNNER_TEMP/DerivedData/Build/Products/Release-iphoneos"
+          APP="$(find "$PRODUCTS" -maxdepth 1 -name '*.app' -print -quit)"
+          test -n "$APP"
+          echo "app: $APP"
+          VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist")"
+          echo "version: $VERSION"
+          mkdir -p build/ipa/Payload
+          cp -R "$APP" build/ipa/Payload/
+          cd build/ipa
+          zip -qry "CarWithin-$VERSION-unsigned.ipa" Payload
+          ls -lh "CarWithin-$VERSION-unsigned.ipa"
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: CarWithin-unsigned-ipa
+          path: build/ipa/*.ipa
+          if-no-files-found: error
+
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-log
+          path: |
+            ${{ runner.temp }}/DerivedData/Logs/**
+          if-no-files-found: ignore

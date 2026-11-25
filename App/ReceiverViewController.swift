@@ -133,6 +133,10 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
     private let zeehoSEPlusFrameRateControl = ChoiceMenu(items: ZeehoFrameRate.allCases.map(\.title))
     private let zeehoSEPlusCanvasControl = ChoiceMenu(items: ZeehoCanvas.allCases.map(\.title))
     private let zeehoSEPlusVideoModeControl = ChoiceMenu(items: ZeehoVideoMode.allCases.map(\.title))
+    /// AE4i Pro+ 单独可调：帧率、码率、H.264 档位。
+    private let zeehoAE4iFrameRateControl = ChoiceMenu(items: ZeehoFrameRate.allCases.map(\.title))
+    private let zeehoAE4iBitrateControl = ChoiceMenu(items: ZeehoBitrate.allCases.map(\.title))
+    private let zeehoAE4iEncodeProfileControl = ChoiceMenu(items: ZeehoEncodeProfile.allCases.map(\.title))
     private let audioRoutePicker: AVRoutePickerView = {
         let picker = AVRoutePickerView()
         picker.prioritizesVideoDevices = false
@@ -152,10 +156,26 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         AVAudioSession.sharedInstance().currentRoute.outputs.map { "\($0.portName)（\($0.portType.rawValue)）" }.joined(separator: "、")
     }
     private var selectedZeehoFrameRate: ZeehoFrameRate {
+        if outputMode == .zeehoAE4i { return selectedZeehoAE4iFrameRate }
         guard outputMode == .zeehoSEPlus else { return .fps25 }
         let rates = ZeehoFrameRate.allCases
         let index = max(0, min(zeehoSEPlusFrameRateControl.selectedSegmentIndex, rates.count - 1))
         return rates[index]
+    }
+    private var selectedZeehoAE4iFrameRate: ZeehoFrameRate {
+        let rates = ZeehoFrameRate.allCases
+        let index = max(0, min(zeehoAE4iFrameRateControl.selectedSegmentIndex, rates.count - 1))
+        return rates[index]
+    }
+    private var selectedZeehoAE4iBitrate: ZeehoBitrate {
+        let options = ZeehoBitrate.allCases
+        let index = max(0, min(zeehoAE4iBitrateControl.selectedSegmentIndex, options.count - 1))
+        return options[index]
+    }
+    private var selectedZeehoAE4iEncodeProfile: ZeehoEncodeProfile {
+        let options = ZeehoEncodeProfile.allCases
+        let index = max(0, min(zeehoAE4iEncodeProfileControl.selectedSegmentIndex, options.count - 1))
+        return options[index]
     }
     private var usesAutomaticZeehoAddress: Bool {
         if outputMode == .zeehoSEPlus { return zeehoSEPlusAutomaticSwitch.isOn }
@@ -1205,6 +1225,8 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
             config.zeehoProfile = profile
             config.zeehoFrameRate = selectedZeehoFrameRate
             config.zeehoVideoMode = selectedZeehoVideoMode
+            config.zeehoBitrate = outputMode == .zeehoAE4i ? selectedZeehoAE4iBitrate : .auto
+            config.zeehoEncodeProfile = outputMode == .zeehoAE4i ? selectedZeehoAE4iEncodeProfile : .baseline
             config.zeehoAutomaticAddress = usesAutomaticZeehoAddress
             config.zeehoAddress = (activeZeehoAddressField.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         }
@@ -1835,6 +1857,9 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         zeehoSEPlusFrameRateControl.isEnabled = value
         zeehoSEPlusCanvasControl.isEnabled = value
         zeehoSEPlusVideoModeControl.isEnabled = value
+        zeehoAE4iFrameRateControl.isEnabled = value
+        zeehoAE4iBitrateControl.isEnabled = value
+        zeehoAE4iEncodeProfileControl.isEnabled = value
         cfmotoAddressField.isEnabled = value
         ninebotAddressField.isEnabled = value
         ninebot43AddressField.isEnabled = value
@@ -2097,6 +2122,15 @@ extension ReceiverViewController {
         zeehoSEPlusCanvasControl.addTarget(self, action: #selector(zeehoVideoSettingsChanged), for: .valueChanged)
         zeehoSEPlusVideoModeControl.selectedSegmentIndex = (ZeehoVideoMode(rawValue: defaults.integer(forKey: "zeehoSEPlusVideoMode")) ?? .transcode).rawValue
         zeehoSEPlusVideoModeControl.addTarget(self, action: #selector(zeehoVideoSettingsChanged), for: .valueChanged)
+        let savedAE4iFrameRate = ZeehoFrameRate(rawValue: defaults.integer(forKey: "zeehoAE4iFrameRate")) ?? .fps25
+        zeehoAE4iFrameRateControl.selectedSegmentIndex = ZeehoFrameRate.allCases.firstIndex(of: savedAE4iFrameRate) ?? 0
+        zeehoAE4iFrameRateControl.addTarget(self, action: #selector(zeehoAE4iSettingsChanged), for: .valueChanged)
+        let savedAE4iBitrate = ZeehoBitrate(rawValue: defaults.integer(forKey: "zeehoAE4iBitrate")) ?? .auto
+        zeehoAE4iBitrateControl.selectedSegmentIndex = ZeehoBitrate.allCases.firstIndex(of: savedAE4iBitrate) ?? 0
+        zeehoAE4iBitrateControl.addTarget(self, action: #selector(zeehoAE4iSettingsChanged), for: .valueChanged)
+        let savedAE4iProfile = ZeehoEncodeProfile(rawValue: defaults.integer(forKey: "zeehoAE4iEncodeProfile")) ?? .baseline
+        zeehoAE4iEncodeProfileControl.selectedSegmentIndex = ZeehoEncodeProfile.allCases.firstIndex(of: savedAE4iProfile) ?? 0
+        zeehoAE4iEncodeProfileControl.addTarget(self, action: #selector(zeehoAE4iSettingsChanged), for: .valueChanged)
         cfmotoAddressField.text = defaults.string(forKey: "cfmotoAddress") ?? "192.168.0.1"
         cfmotoAddressField.keyboardType = .decimalPad
         cfmotoAddressField.addTarget(self, action: #selector(saveHeadUnitOutput), for: .editingDidEnd)
@@ -2169,6 +2203,15 @@ extension ReceiverViewController {
         UserDefaults.standard.set(selectedZeehoCanvas.rawValue, forKey: "zeehoSEPlusCanvas")
         UserDefaults.standard.set(zeehoSEPlusVideoModeControl.selectedSegmentIndex, forKey: "zeehoSEPlusVideoMode")
         updateVideoAspect()
+        refreshVideoOutputSummary()
+        reloadVisibleSettings()
+    }
+    @objc private func zeehoAE4iSettingsChanged() {
+        guard !running else { return }
+        let defaults = UserDefaults.standard
+        defaults.set(selectedZeehoAE4iFrameRate.rawValue, forKey: "zeehoAE4iFrameRate")
+        defaults.set(selectedZeehoAE4iBitrate.rawValue, forKey: "zeehoAE4iBitrate")
+        defaults.set(selectedZeehoAE4iEncodeProfile.rawValue, forKey: "zeehoAE4iEncodeProfile")
         refreshVideoOutputSummary()
         reloadVisibleSettings()
     }
@@ -2787,8 +2830,12 @@ extension ReceiverViewController {
                 var rows: [SettingsRow] = []
                 rows.append(.control("自动查找仪表 IP", icon: ("network", .systemBlue), outputMode == .zeehoSEPlus ? zeehoSEPlusAutomaticSwitch : zeeho62AutomaticSwitch))
                 if outputMode == .zeehoAE4i {
-                    rows.append(.info("画面规格", "跟随仪表上报尺寸 · 最高 2048×968 · H.264 · 25 FPS"))
-                    rows.append(.info("使用说明", "2026 款 AE4i Pro+ 这类 2 倍屏 6.2 寸仪表选这一项。老款 1024×480 的 6.2 寸仪表也可以先试这一项，画面异常时切回「极核 6.2 寸」。"))
+                    rows.append(.info("画面规格", "跟随仪表上报尺寸 · 最高 2048×968 · H.264"))
+                    rows.append(.control("仪表目标帧率", icon: ("gauge.with.dots.needle.67percent", .systemGreen), zeehoAE4iFrameRateControl))
+                    rows.append(.control("编码码率", icon: ("speedometer", .systemOrange), zeehoAE4iBitrateControl))
+                    rows.append(.control("编码档位", icon: ("film", .systemIndigo), zeehoAE4iEncodeProfileControl))
+                    rows.append(.info("当前参数", "\(selectedZeehoAE4iFrameRate.rawValue) FPS · \(selectedZeehoAE4iBitrate.title) · \(selectedZeehoAE4iEncodeProfile.title)"))
+                    rows.append(.info("使用说明", "2026 款 AE4i Pro+ 这类 2 倍屏 6.2 寸仪表选这一项。帧率/码率/档位改完要重新启动 CarPlay 才生效；画面糊先加码率，卡顿就降码率或帧率。Main 档个别解码器会黑屏，切回 Baseline 即可。"))
                 }
                 if outputMode == .zeehoSEPlus {
                     rows.append(.control("仪表目标帧率", icon: ("gauge.with.dots.needle.67percent", .systemGreen), zeehoSEPlusFrameRateControl))

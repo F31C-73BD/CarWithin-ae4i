@@ -56,6 +56,12 @@ struct ZeehoSEPlusSizeSmoke {
         let jpeg = InstrumentFrameSize(width: 480, height: 272)
         precondition(TailingDisplayProfile.tailing43.outputSize(for: jpeg) == jpeg)
         precondition(TailingDisplayProfile.tailing43.outputSize(for: original) == nil)
+        precondition(ZeehoBitrate.allCases.map(\.rawValue) == [0, 12, 15, 18, 24, 30])
+        precondition(ZeehoBitrate.auto.bitsPerSecond == nil)
+        precondition(ZeehoBitrate.m15.bitsPerSecond == 15_000_000 && ZeehoBitrate.m30.bitsPerSecond == 30_000_000)
+        precondition(ZeehoBitrate.auto.title.contains("自动") && ZeehoBitrate.m18.title.hasPrefix("18"))
+        precondition(ZeehoEncodeProfile.allCases == [.baseline, .main])
+        precondition(ZeehoEncodeProfile.baseline.title.contains("Baseline") && ZeehoEncodeProfile.main.title.contains("Main"))
         let ae4i = TailingDisplayProfile.zeehoAE4i
         precondition(ae4i.preferredSize == InstrumentFrameSize(width: 2048, height: 968))
         precondition(ae4i.bitrateScale == 6 && sePlus.bitrateScale == 1

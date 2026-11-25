@@ -127,6 +127,8 @@ final class NativeReceiver {
                     self.zeeho.start(localAddress: configuration.address,
                         targetAddress: configuration.zeehoAutomaticAddress ? "" : target,
                         profile: configuration.zeehoProfile, frameRate: configuration.zeehoFrameRate,
+                        bitrateOverride: configuration.zeehoBitrate.bitsPerSecond,
+                        encodeProfile: configuration.zeehoEncodeProfile,
                         videoMode: configuration.zeehoVideoMode,
                         sourceSize: InstrumentFrameSize(width: configuration.width, height: configuration.height), phone: phone,
                         onState: { [weak self] in self?.onZeehoState?($0) },

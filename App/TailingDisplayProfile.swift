@@ -28,6 +28,22 @@ enum ZeehoCanvas: Int, CaseIterable, Sendable {
     }
 }
 
+/// 仪表输出的编码码率。自动档按 profile 的像素倍率从 2.5 Mbit/s 起算并随帧率放大；
+/// 手动档直接给定值。码率越高越清晰，也越吃仪表 Wi-Fi 和解码能力。
+enum ZeehoBitrate: Int, CaseIterable, Sendable {
+    case auto = 0, m12 = 12, m15 = 15, m18 = 18, m24 = 24, m30 = 30
+
+    var title: String { self == .auto ? "自动（随帧率）" : "\(rawValue) Mbit/s" }
+    var bitsPerSecond: Int? { self == .auto ? nil : rawValue * 1_000_000 }
+}
+
+/// H.264 编码档位。Main 允许 CABAC，同码率下文字更干净；极个别老解码器只认 Baseline。
+enum ZeehoEncodeProfile: Int, CaseIterable, Sendable {
+    case baseline = 0, main = 1
+
+    var title: String { self == .baseline ? "Baseline（兼容）" : "Main（更清晰）" }
+}
+
 /// A bounded compressed-frame FIFO. On overflow, discard the dependent GOP and wait for IDR.
 /// The owner supplies synchronization and SPS/PPS with every keyframe.
 struct ZeehoRelayBuffer {

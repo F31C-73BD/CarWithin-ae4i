@@ -11,16 +11,23 @@ final class ZeehoOutput {
 
     func start(localAddress: String, targetAddress: String, profile: TailingDisplayProfile,
                frameRate: ZeehoFrameRate = .fps25,
+               bitrateOverride: Int? = nil, encodeProfile: ZeehoEncodeProfile = .baseline,
                videoMode: ZeehoVideoMode = .transcode, sourceSize: InstrumentFrameSize? = nil,
                phone: TailingPhoneInfo, onState: @escaping (String) -> Void,
                onLog: @escaping (String) -> Void, requestKeyframe: @escaping () -> Void) {
         stop()
-        // 2048×968 这类 2 倍面板按像素数放大码率，否则 2.5 Mbit/s 撑不住 4 倍像素。
-        let bitrate = min(20_000_000, Int((Double(frameRate.bitrate) * profile.bitrateScale).rounded()))
+        // 自动档按像素数放大码率（2048×968 是旧款 1024×480 的 4 倍，再留一点给文字边缘），
+        // 手动档直接采用用户选的 Mbit/s。
+        let automatic = min(30_000_000, Int((Double(frameRate.bitrate) * profile.bitrateScale).rounded()))
+        let bitrate = bitrateOverride ?? automatic
+        let level: CFString = encodeProfile == .main
+            ? kVTProfileLevel_H264_Main_AutoLevel
+            : kVTProfileLevel_H264_Baseline_AutoLevel
         let next = Session(queue: queue, localAddress: localAddress, targetAddress: targetAddress,
                            profile: profile, frameRate: frameRate, videoMode: videoMode,
                            sourceSize: sourceSize ?? profile.preferredSize, bitrate: bitrate,
-                           prioritizeQuality: profile.prioritizesEncodingQuality, phone: phone,
+                           prioritizeQuality: profile.prioritizesEncodingQuality,
+                           profileLevel: level, encodeProfileName: encodeProfile.title, phone: phone,
                            onState: onState, onLog: onLog, requestKeyframe: requestKeyframe)
         session = next
         next.start()
@@ -57,6 +64,8 @@ final class ZeehoOutput {
         private let sourceSize: InstrumentFrameSize
         private let bitrate: Int
         private let prioritizeQuality: Bool
+        private let profileLevel: CFString
+        private let encodeProfileName: String
         private var usesRelay: Bool
         private var isRelaying: Bool { lock.withLock { usesRelay } }
         private let relayCondition = NSCondition()
@@ -89,7 +98,7 @@ final class ZeehoOutput {
         init(queue: DispatchQueue, localAddress: String, targetAddress: String, profile: TailingDisplayProfile,
              frameRate: ZeehoFrameRate,
              videoMode: ZeehoVideoMode, sourceSize: InstrumentFrameSize, bitrate: Int,
-             prioritizeQuality: Bool,
+             prioritizeQuality: Bool, profileLevel: CFString, encodeProfileName: String,
              phone: TailingPhoneInfo, onState: @escaping (String) -> Void, onLog: @escaping (String) -> Void,
              requestKeyframe: @escaping () -> Void) {
             self.queue = queue
@@ -97,6 +106,8 @@ final class ZeehoOutput {
             self.sourceSize = sourceSize
             self.bitrate = bitrate
             self.prioritizeQuality = prioritizeQuality
+            self.profileLevel = profileLevel
+            self.encodeProfileName = encodeProfileName
             self.usesRelay = profile == .zeehoSEPlus && videoMode.effective(for: frameRate) == .relay
             self.connection = TailingConnection(localIP: localAddress, targetIP: targetAddress,
                 profile: profile, phone: phone, log: onLog)
@@ -350,7 +361,8 @@ final class ZeehoOutput {
                     guard now - lastCodecFailure >= 0.5 else { return nil }
                     encoder = try H264Encoder(width: size.width, height: size.height,
                                               fps: frameRate.rawValue, bitrate: bitrate,
-                                              prioritizeQuality: prioritizeQuality) { [weak self] result in
+                                              prioritizeQuality: prioritizeQuality,
+                                              profileLevel: profileLevel) { [weak self] result in
                         guard let self else { return }
                         self.lock.withLock { self.encoded = result }
                     }
@@ -407,7 +419,7 @@ final class ZeehoOutput {
                     onLog("极核首帧已发送 · \(size) · H.264 直传 · 源目标 \(frameRate.rawValue) FPS · 码率由 CarPlay 决定")
                 } else {
                     let actual = String(format: "%.1f", Double(bitrate) / 1_000_000)
-                    onLog("极核首帧已发送 · \(size) · 兼容转码 · 目标 \(frameRate.rawValue) FPS · 码率 \(actual) Mbit/s")
+                    onLog("极核首帧已发送 · \(size) · 兼容转码 · \(encodeProfileName) · 目标 \(frameRate.rawValue) FPS · 码率 \(actual) Mbit/s")
                 }
             }
             if let started = lastReply {

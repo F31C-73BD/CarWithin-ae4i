@@ -18,7 +18,7 @@ final class ZeehoOutput {
         stop()
         // 自动档按像素数放大码率（2048×968 是旧款 1024×480 的 4 倍，再留一点给文字边缘），
         // 手动档直接采用用户选的 Mbit/s。
-        let automatic = min(30_000_000, Int((Double(frameRate.bitrate) * profile.bitrateScale).rounded()))
+        let automatic = min(24_000_000, Int((Double(frameRate.bitrate) * profile.bitrateScale).rounded()))
         let bitrate = bitrateOverride ?? automatic
         let level: CFString = encodeProfile == .main
             ? kVTProfileLevel_H264_Main_AutoLevel

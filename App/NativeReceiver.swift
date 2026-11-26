@@ -1,6 +1,7 @@
 import Foundation
 import Network
 import CoreGraphics
+import MediaPlayer
 
 /// All listener/session state is confined to queue. UI callbacks are always main-thread.
 final class NativeReceiver {
@@ -58,6 +59,8 @@ final class NativeReceiver {
     private let carLife = CarLifeOutput()
     private let zeeho = ZeehoOutput()
     private let zeeho62 = Zeeho62Legacy.ZeehoOutput()
+    /// 车把蓝牙媒体键 → CarPlay 的桥；只在运行时存在。
+    private var remoteMediaKeys: RemoteMediaKeys?
     var onZeehoState: ((String) -> Void)?
     private let ninebot = NinebotOutput()
     var onNinebotState: ((String) -> Void)?
@@ -104,6 +107,13 @@ final class NativeReceiver {
             self.videoOutput.onState = { [weak self] in self?.onVideoOutputState?($0) }
             self.videoOutput.onKeyframeRequest = { [weak self] in self?.requestKeyFrame(reason: $0) }
             self.displaySize = (configuration.width, configuration.height)
+            // 车把按键以蓝牙媒体键（AVRCP）送到 iPhone；投屏时 CarPlay 抢走了「正在播放」，
+            // 这里注册一遍，把自己声明成播放器，把收到的命令转成 CarPlay 的 HID 媒体键。
+            self.remoteMediaKeys?.stop()
+            let keys = RemoteMediaKeys(press: { [weak self] in self?.press($0) },
+                                       log: { [weak self] in self?.log($0) })
+            keys.start()
+            self.remoteMediaKeys = keys
             self.videoOutput.onTouches = { [weak self] source, points in self?.touches(source: source, points) }
             self.videoOutput.onControl = { [weak self] in self?.press($0) }
             self.videoOutput.onDisplay = { [weak self] display, viewerID in
@@ -363,6 +373,7 @@ final class NativeReceiver {
         (try? AnnexB.units(in: accessUnit))?.contains { codec.isRandomAccess($0) } ?? false
     }
     private func stopOnQueue() {
+        remoteMediaKeys?.stop(); remoteMediaKeys = nil
         DispatchQueue.main.async { [weak self] in self?.discoveryService?.stop(); self?.discoveryService = nil }
         generation = UUID(); listener?.cancel(); listener = nil
         videoOutput.stop()
@@ -571,4 +582,56 @@ final class NativeReceiver {
         }
     }
     private func log(_ message: String) { DispatchQueue.main.async { [weak self] in self?.onLog?(message) } }
+}
+
+/// 车把/车机的蓝牙媒体键（AVRCP）→ CarPlay HID。
+/// 仪表投屏时这些键不会走 PXC，而是以系统媒体命令送到持有「正在播放」的 App；
+/// CarPlay 会抢占这个位置，所以这里主动注册并发布一条播放信息把命令接过来。
+final class RemoteMediaKeys {
+    private let press: (CarPlayControl) -> Void
+    private let log: (String) -> Void
+    private var started = false
+
+    init(press: @escaping (CarPlayControl) -> Void, log: @escaping (String) -> Void) {
+        self.press = press
+        self.log = log
+    }
+
+    func start() {
+        guard !started else { return }
+        started = true
+        let center = MPRemoteCommandCenter.shared()
+        let handlers: [(MPRemoteCommand, CarPlayControl, String)] = [
+            (center.nextTrackCommand, .next, "下一首"),
+            (center.previousTrackCommand, .previous, "上一首"),
+            (center.togglePlayPauseCommand, .playPause, "播放/暂停"),
+        ]
+        for (command, control, name) in handlers {
+            command.isEnabled = true
+            command.removeTarget(nil)
+            command.addTarget { [weak self] _ in
+                guard let self else { return .commandFailed }
+                self.log("蓝牙媒体键：\(name) → 已转给 CarPlay")
+                self.press(control)
+                return .success
+            }
+        }
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = [
+            MPMediaItemPropertyTitle: "CarPlay",
+            MPMediaItemPropertyArtist: "CarWithin",
+            MPNowPlayingInfoPropertyPlaybackRate: 1.0,
+            MPNowPlayingInfoPropertyDefaultPlaybackRate: 1.0,
+        ]
+    }
+
+    func stop() {
+        guard started else { return }
+        started = false
+        let center = MPRemoteCommandCenter.shared()
+        for command in [center.nextTrackCommand, center.previousTrackCommand, center.togglePlayPauseCommand] {
+            command.removeTarget(nil)
+            command.isEnabled = false
+        }
+        MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
+    }
 }

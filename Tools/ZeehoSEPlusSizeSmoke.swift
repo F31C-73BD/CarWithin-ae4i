@@ -3,10 +3,12 @@ import Foundation
 @main
 struct ZeehoSEPlusSizeSmoke {
     static func main() {
-        precondition(ZeehoFrameRate.allCases.map(\.rawValue) == [25, 30, 60])
+        precondition(ZeehoFrameRate.allCases.map(\.rawValue) == [25, 30, 45, 50, 60])
         precondition(ZeehoFrameRate.fps25.sourceFPS == 30 && ZeehoFrameRate.fps25.bitrate == 2_500_000)
         precondition(ZeehoFrameRate.fps30.sourceFPS == 30 && ZeehoFrameRate.fps30.bitrate == 3_000_000)
         precondition(ZeehoFrameRate.fps60.sourceFPS == 60 && ZeehoFrameRate.fps60.bitrate == 6_000_000)
+        precondition(ZeehoFrameRate.fps45.sourceFPS == 45 && ZeehoFrameRate.fps45.bitrate == 4_500_000)
+        precondition(ZeehoFrameRate.fps50.sourceFPS == 50 && ZeehoFrameRate.fps50.bitrate == 5_000_000)
         precondition(ZeehoFrameRate.fps60.title.contains("实验"))
         precondition(ZeehoFrameRate(rawValue: 0) == nil && ZeehoFrameRate(rawValue: 120) == nil)
         precondition(ZeehoCanvas.wide.size == InstrumentFrameSize(width: 1600, height: 770))

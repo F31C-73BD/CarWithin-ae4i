@@ -4,6 +4,9 @@ import CoreGraphics
 enum ZeehoFrameRate: Int, CaseIterable, Sendable {
     case fps25 = 25
     case fps30 = 30
+    /// 贴着仪表拉帧上限跑的两档：波动比「目标 60、实际 40–55」更均匀。
+    case fps45 = 45
+    case fps50 = 50
     case fps60 = 60
 
     var title: String { self == .fps60 ? "60 FPS（实验）" : "\(rawValue) FPS" }

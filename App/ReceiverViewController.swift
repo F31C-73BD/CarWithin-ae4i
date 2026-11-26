@@ -126,6 +126,8 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
     private let browserCard = UIStackView()
     private let zeehoCard = UIStackView()
     private let zeehoCardStatus = UILabel()
+    /// 极核卡片里的实时状态：帧率 / 码率 / 编码档位。
+    private let zeehoStatsLabel = UILabel()
     private let zeehoStatus = StatusLabel()
     private let zeehoAddressField = UITextField()
     private let zeehoSEPlusAddressField = UITextField()
@@ -188,6 +190,23 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
     private func updateZeehoStatus(_ message: String) {
         zeehoStatus.text = message
         zeehoCardStatus.text = message
+        if !message.hasPrefix(CWL("正在投屏")) { zeehoStatsLabel.isHidden = true }
+    }
+
+    /// 编码器每 5 秒回报一次：实测帧率 / 生效码率（编码档位取自当前选择）。
+    private func updateZeehoStats(fps: Double, bitrate: Int) {
+        let target = selectedZeehoFrameRate.rawValue
+        let bitrateChoice: String
+        if outputMode == .zeehoAE4i {
+            let option = selectedZeehoAE4iBitrate
+            bitrateChoice = option == .auto ? CWL("自动") : "\(option.rawValue) Mbit/s"
+        } else {
+            bitrateChoice = CWL("自动")
+        }
+        let profile = outputMode == .zeehoAE4i && selectedZeehoAE4iEncodeProfile == .main ? "Main" : "Baseline"
+        zeehoStatsLabel.text = String(format: CWL("帧率 %.1f/%d · 码率 %.1f/%@ · 编码 %@"),
+                                      fps, target, Double(bitrate) / 1_000_000, bitrateChoice, profile)
+        zeehoStatsLabel.isHidden = false
     }
     private let cfmotoCard = UIStackView()
     private let cfmotoCardStatus = UILabel()
@@ -470,7 +489,9 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         startupHint.numberOfLines = 0
         startupHint.adjustsFontForContentSizeCategory = true
         startupHint.isHidden = true
-        let heroStack = UIStackView(arrangedSubviews: [titleStack, explanation, statusRow, startupHint, connectionHelp, receiverPicker, networkSummary])
+        // 顶部「本机 CarPlay + 版本」标题行已按需求隐藏（版本号仍可在「关于」页查看）。
+    titleStack.isHidden = true
+    let heroStack = UIStackView(arrangedSubviews: [titleStack, explanation, statusRow, startupHint, connectionHelp, receiverPicker, networkSummary])
         heroStack.axis = .vertical; heroStack.spacing = 14
         heroStack.isLayoutMarginsRelativeArrangement = true
         heroStack.directionalLayoutMargins = NSDirectionalEdgeInsets(top: 22, leading: 20, bottom: 22, trailing: 20)
@@ -556,9 +577,15 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         carLifeCard.addArrangedSubview(carLifeSettings)
         stack.addArrangedSubview(carLifeCard)
 
+        zeehoStatsLabel.font = .preferredFont(forTextStyle: .footnote)
+        zeehoStatsLabel.textColor = .secondaryLabel
+        zeehoStatsLabel.numberOfLines = 0
+        zeehoStatsLabel.adjustsFontForContentSizeCategory = true
+        zeehoStatsLabel.isHidden = true
         configureConnectionCard(zeehoCard, title: "极核仪表连接", symbol: "scooter", color: .systemBlue,
             instructions: CWL("让 iPhone 加入极核仪表 Wi-Fi，打开仪表投屏后启动 CarPlay。"), status: zeehoCardStatus)
-        let zeehoSettings = UIButton(type: .system)
+        zeehoCard.addArrangedSubview(zeehoStatsLabel)
+    let zeehoSettings = UIButton(type: .system)
         zeehoSettings.configuration = .tinted()
         zeehoSettings.configuration?.title = CWL("连接设置")
         zeehoSettings.addAction(UIAction { [weak self] _ in self?.revealSettings(output: true) }, for: .touchUpInside)
@@ -723,6 +750,10 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         receiver.onZeehoState = { [weak self] message in
             guard let self, self.running, self.outputMode.zeehoProfile != nil else { return }
             self.updateZeehoStatus(message)
+        }
+        receiver.onZeehoStats = { [weak self] fps, bitrate in
+            guard let self, self.running, self.outputMode.zeehoProfile != nil else { return }
+            self.updateZeehoStats(fps: fps, bitrate: bitrate)
         }
         receiver.onCfmotoState = { [weak self] message in
             guard let self, self.running, self.outputMode.cfmoto else { return }

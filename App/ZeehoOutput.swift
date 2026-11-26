@@ -12,6 +12,7 @@ final class ZeehoOutput {
     func start(localAddress: String, targetAddress: String, profile: TailingDisplayProfile,
                frameRate: ZeehoFrameRate = .fps25,
                bitrateOverride: Int? = nil, encodeProfile: ZeehoEncodeProfile = .baseline,
+               onStats: ((Double, Int) -> Void)? = nil,
                videoMode: ZeehoVideoMode = .transcode, sourceSize: InstrumentFrameSize? = nil,
                phone: TailingPhoneInfo, onState: @escaping (String) -> Void,
                onLog: @escaping (String) -> Void, requestKeyframe: @escaping () -> Void) {
@@ -27,7 +28,8 @@ final class ZeehoOutput {
                            profile: profile, frameRate: frameRate, videoMode: videoMode,
                            sourceSize: sourceSize ?? profile.preferredSize, bitrate: bitrate,
                            prioritizeQuality: profile.prioritizesEncodingQuality,
-                           profileLevel: level, encodeProfileName: encodeProfile.title, phone: phone,
+                           profileLevel: level, encodeProfileName: encodeProfile.title,
+                           onStats: onStats, phone: phone,
                            onState: onState, onLog: onLog, requestKeyframe: requestKeyframe)
         session = next
         next.start()
@@ -66,6 +68,7 @@ final class ZeehoOutput {
         private let prioritizeQuality: Bool
         private let profileLevel: CFString
         private let encodeProfileName: String
+        private let onStats: ((Double, Int) -> Void)?
         private var usesRelay: Bool
         private var isRelaying: Bool { lock.withLock { usesRelay } }
         private let relayCondition = NSCondition()
@@ -99,7 +102,7 @@ final class ZeehoOutput {
              frameRate: ZeehoFrameRate,
              videoMode: ZeehoVideoMode, sourceSize: InstrumentFrameSize, bitrate: Int,
              prioritizeQuality: Bool, profileLevel: CFString, encodeProfileName: String,
-             phone: TailingPhoneInfo, onState: @escaping (String) -> Void, onLog: @escaping (String) -> Void,
+             onStats: ((Double, Int) -> Void)?, phone: TailingPhoneInfo, onState: @escaping (String) -> Void, onLog: @escaping (String) -> Void,
              requestKeyframe: @escaping () -> Void) {
             self.queue = queue
             self.frameRate = frameRate
@@ -108,6 +111,7 @@ final class ZeehoOutput {
             self.prioritizeQuality = prioritizeQuality
             self.profileLevel = profileLevel
             self.encodeProfileName = encodeProfileName
+            self.onStats = onStats
             self.usesRelay = profile == .zeehoSEPlus && videoMode.effective(for: frameRate) == .relay
             self.connection = TailingConnection(localIP: localAddress, targetIP: targetAddress,
                 profile: profile, phone: phone, log: onLog)
@@ -429,6 +433,7 @@ final class ZeehoOutput {
                     let rate = Double(counter) / duration
                     onLog(String(format: "极核实际发送 %.1f FPS，目标 %d FPS（%.1f 秒 / %u 帧）",
                                  rate, frameRate.rawValue, duration, counter))
+                    onStats?(rate, bitrate)
                     if isRelaying {
                         relayCondition.lock()
                         let inputs = relayInputFrames

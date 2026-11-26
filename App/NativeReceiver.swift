@@ -59,6 +59,8 @@ final class NativeReceiver {
     private let zeeho = ZeehoOutput()
     private let zeeho62 = Zeeho62Legacy.ZeehoOutput()
     var onZeehoState: ((String) -> Void)?
+    /// Main thread: 极核投屏的实测帧率与生效码率（约每 5 秒一次）。
+    var onZeehoStats: ((Double, Int) -> Void)?
     private let ninebot = NinebotOutput()
     var onNinebotState: ((String) -> Void)?
     private let cfmoto5 = CfmotoOutput(name: "cfmoto5")
@@ -121,6 +123,9 @@ final class NativeReceiver {
                     self.zeeho62.start(localAddress: configuration.address,
                         targetAddress: configuration.zeehoAutomaticAddress ? "" : target, phone: legacyPhone,
                         onState: { [weak self] in self?.onZeehoState?($0) },
+                        onStats: { [weak self] fps, bps in
+                            DispatchQueue.main.async { self?.onZeehoStats?(fps, bps) }
+                        },
                         onLog: { [weak self] in self?.log($0) },
                         requestKeyframe: { [weak self] in self?.requestKeyFrame(reason: "极核 6.2 寸解码恢复") })
                 } else {
@@ -132,6 +137,9 @@ final class NativeReceiver {
                         videoMode: configuration.zeehoVideoMode,
                         sourceSize: InstrumentFrameSize(width: configuration.width, height: configuration.height), phone: phone,
                         onState: { [weak self] in self?.onZeehoState?($0) },
+                        onStats: { [weak self] fps, bps in
+                            DispatchQueue.main.async { self?.onZeehoStats?(fps, bps) }
+                        },
                         onLog: { [weak self] in self?.log($0) },
                         requestKeyframe: { [weak self] in self?.requestKeyFrame(reason: CWL("极核解码恢复")) })
                 }

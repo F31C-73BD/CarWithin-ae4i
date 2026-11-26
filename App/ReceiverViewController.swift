@@ -2449,7 +2449,7 @@ extension ReceiverViewController {
                 }) { [unowned self] in self.wifiForm(adding: true) })
             }
             connection.append(.page(CWL("Wi-Fi 预设"), icon: ("list.bullet", .systemBlue), detail: { WiFiPresetStore.selected()?.ssid ?? CWL("未选择") }) { [unowned self] in self.presetsPage() })
-            connection.append(.control(CWL("当前输出"), icon: ("point.3.connected.trianglepath.dotted", .systemIndigo), headUnitOutput))
+            connection.append(.info(CWL("当前输出"), headUnitOutput.selectedTitle))
             connection.append(.page(CWL("输出设置"), icon: ("slider.horizontal.3", .systemGray)) { [unowned self] in self.headUnitPage() })
             if outputMode == .browser {
                 connection.append(.page(CWL("HTTPS 设置"), icon: ("lock.shield", .systemBlue)) { [unowned self] in self.httpsSettingsPage() })
@@ -2840,8 +2840,95 @@ extension ReceiverViewController {
 
     // MARK: 输出方式
 
+    // MARK: 车型选择（品牌 → 车型 两级菜单）
+
+    /// 车型大类：一级菜单按品牌分组。
+    private enum HeadUnitBrand: Int, CaseIterable {
+        case ninebot, zeeho, cfmoto, tailing, other
+
+        var title: String {
+            switch self {
+            case .ninebot: return CWL("九号")
+            case .zeeho: return CWL("极核")
+            case .cfmoto: return CWL("春风")
+            case .tailing: return CWL("台铃")
+            case .other: return CWL("其他")
+            }
+        }
+        var symbol: String {
+            switch self {
+            case .ninebot, .zeeho: return "scooter"
+            case .cfmoto: return "car.fill"
+            case .tailing: return "car"
+            case .other: return "globe"
+            }
+        }
+        var color: UIColor {
+            switch self {
+            case .ninebot: return .systemGreen
+            case .zeeho: return .systemBlue
+            case .cfmoto: return .systemTeal
+            case .tailing: return .systemOrange
+            case .other: return .systemGray
+            }
+        }
+    }
+
+    private func brand(of mode: HeadUnitOutput) -> HeadUnitBrand {
+        switch mode {
+        case .ninebot, .ninebotSeven, .ninebot43: return .ninebot
+        case .zeeho, .zeehoAE4i, .zeehoSEPlus, .zeehoAE2: return .zeeho
+        case .cfmoto5, .cfmoto62: return .cfmoto
+        case .tailing: return .tailing
+        case .browser, .carLife, .airPlay: return .other
+        }
+    }
+
+    /// 输出设置页顶部的「车型选择」入口。
+    private func modelChoiceSection() -> SettingsSection {
+        SettingsSection(CWL("车型"), [
+            .page(CWL("车型选择"), icon: ("car.fill", .systemIndigo), detail: { [unowned self] in
+                "\(self.brand(of: self.outputMode).title) · \(self.outputMode.title)"
+            }) { [unowned self] in self.modelCategoryPage() }
+        ])
+    }
+
+    private func modelCategoryPage() -> SettingsPageController {
+        page(CWL("车型选择")) { [unowned self] in
+            [SettingsSection(CWL("品牌"), Self.HeadUnitBrand.allCases.map { brand in
+                SettingsRow.page(brand.title, icon: (brand.symbol, brand.color), detail: { [unowned self] in
+                    self.brand(of: self.outputMode) == brand ? self.outputMode.title : nil
+                }) { [unowned self] in self.modelListPage(brand) }
+            })]
+        }
+    }
+
+    private func modelListPage(_ brand: HeadUnitBrand) -> SettingsPageController {
+        page(brand.title) { [unowned self] in
+            let rows = HeadUnitOutput.menuOrder.filter { self.brand(of: $0) == brand }.map { mode -> SettingsRow in
+                var row = SettingsRow.action(mode.title) { [unowned self] in self.choose(mode) }
+                row.checked = { [unowned self] in self.outputMode == mode }
+                return row
+            }
+            return [SettingsSection(nil, footer: CWL("选择后立即生效，并自动返回。"), rows)]
+        }
+    }
+
+    private func choose(_ mode: HeadUnitOutput) {
+        guard let index = HeadUnitOutput.menuOrder.firstIndex(of: mode) else { return }
+        headUnitOutput.selectedSegmentIndex = index
+        headUnitOutputChanged()
+        settingsNavigation?.popToRootViewController(animated: true)
+    }
+
     fileprivate func headUnitPage() -> SettingsPageController {
         page(CWL("输出设置")) { [unowned self] in
+            [self.modelChoiceSection()] + self.headUnitSections()
+        }
+    }
+
+    /// 输出设置页原有内容，按当前车型给出分区。
+    private func headUnitSections() -> [SettingsSection] {
             switch outputMode {
             case .browser: return browserOutputSections()
             case .carLife: return carLifeOutputSections()
@@ -2908,7 +2995,6 @@ extension ReceiverViewController {
                     SettingsSection(CWL("使用说明"), instructions)
                 ]
             }
-        }
     }
 
     private func airPlayOutputSections() -> [SettingsSection] {

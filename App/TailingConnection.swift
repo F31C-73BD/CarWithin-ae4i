@@ -156,10 +156,22 @@ final class TailingConnection: @unchecked Sendable {
         let socket = try videoSocket()
         let pullStarted = ProcessInfo.processInfo.systemUptime
         let request: TailingProtocol.Auxiliary
-        do {
-            request = try TailingProtocol.readAuxiliary { try socket.readExactly($0, timeout: 5) }
-        } catch {
-            throw terminalError(or: TailingError.channel(CWL("等待视频拉帧请求"), error))
+        var attempt = 0
+        while true {
+            do {
+                request = try TailingProtocol.readAuxiliary { try socket.readExactly($0, timeout: attempt == 0 ? 5 : 3) }
+                break
+            } catch {
+                // 蓝牙放歌会和仪表 Wi-Fi 抢 2.4G，几秒抖动不该让整个投屏消失：
+                // 会话仍健康时重试两次，只有确实断了才结束。
+                attempt += 1
+                try checkHealth()
+                if attempt < 3 {
+                    log(CWL("仪表拉帧超时，重试 {1}/2（蓝牙放歌或 Wi-Fi 抖动都可能导致）", [String(describing: attempt)]))
+                    continue
+                }
+                throw terminalError(or: TailingError.channel(CWL("等待视频拉帧请求超时（已重试 2 次）"), error))
+            }
         }
         let pullWait = ProcessInfo.processInfo.systemUptime - pullStarted
         guard request.command == 0x72, request.payload.isEmpty else {

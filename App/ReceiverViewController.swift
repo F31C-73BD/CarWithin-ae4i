@@ -3252,7 +3252,9 @@ extension ReceiverViewController {
         page(CWL("关于")) { [unowned self] in
             [
                 SettingsSection([.view(self.aboutIdentityCard())]),
-                SettingsSection(footer: "Copyright © 2026 xmz28", self.aboutLinks())
+                SettingsSection(footer: "Copyright © 2026 xmz28", self.aboutLinks() + [
+                    .info("极核 AE4i Pro+ 适配", "飞扬大大 · 大肥鱼（AI 助手）")
+                ])
             ]
         }
     }

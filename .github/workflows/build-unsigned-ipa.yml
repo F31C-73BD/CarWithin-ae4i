@@ -3,9 +3,9 @@ name: Build unsigned IPA
 # 没有 Mac 也能出包：在 GitHub 的 macOS 运行器上编译，产物是未签名的 .ipa，
 # 下载后用 Sideloadly / AltStore / TrollStore / 全能签 等按自己的方式签名安装。
 #
-# App/BundledIdentity 里的配件身份文件不进仓库（上游 .gitignore 也排除），
-# 这里按上游的做法从公开的 v1.0.4 发布包里取，保证编出来的 App 与 1.0.4 一样
-# 带有 CarPlay 所需的身份材料。
+# 上游把 MFi 身份文件（certificate.p7b / leaf.cer / private.x963）排除在仓库和工程之外，
+# 所以这里从公开的 v1.0.4 发布包里取回，并在**打包前**塞进 .app ——
+# 不放进去时 App 会提示「Keychain 中未存储 MFi 身份」，CarPlay 起不来。
 on:
   workflow_dispatch:
   push:
@@ -28,17 +28,16 @@ jobs:
       - name: Fetch accessory identity from the public 1.0.4 release
         run: |
           set -euo pipefail
-          mkdir -p App/BundledIdentity
-          work="$(mktemp -d)"
-          curl -fsSL -o "$work/1.0.4.ipa" \
+          mkdir -p "$RUNNER_TEMP/identity"
+          curl -fsSL -o "$RUNNER_TEMP/identity/1.0.4.ipa" \
             "https://github.com/xmz28/CarWithin/releases/download/v1.0.4/CarWithin-1.0.4-unsigned.ipa"
-          unzip -q "$work/1.0.4.ipa" -d "$work/unpacked"
-          APP="$(find "$work/unpacked/Payload" -maxdepth 1 -name '*.app' -print -quit)"
-          test -n "$APP"
+          unzip -q "$RUNNER_TEMP/identity/1.0.4.ipa" -d "$RUNNER_TEMP/identity/unpacked"
+          SRC_APP="$(find "$RUNNER_TEMP/identity/unpacked/Payload" -maxdepth 1 -name '*.app' -print -quit)"
+          test -n "$SRC_APP"
           for name in certificate.p7b leaf.cer private.x963; do
-            cp "$APP/$name" "App/BundledIdentity/$name"
+            cp "$SRC_APP/$name" "$RUNNER_TEMP/identity/$name"
           done
-          ls -l App/BundledIdentity
+          ls -l "$RUNNER_TEMP/identity"
 
       - name: Build unsigned app
         run: |
@@ -64,6 +63,10 @@ jobs:
           APP="$(find "$PRODUCTS" -maxdepth 1 -name '*.app' -print -quit)"
           test -n "$APP"
           echo "app: $APP"
+          for name in certificate.p7b leaf.cer private.x963; do
+            cp "$RUNNER_TEMP/identity/$name" "$APP/$name"
+          done
+          ls -l "$APP" | grep -E 'certificate|leaf|private' || true
           VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist")"
           echo "version: $VERSION"
           mkdir -p build/ipa/Payload

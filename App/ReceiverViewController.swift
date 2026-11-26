@@ -2449,7 +2449,11 @@ extension ReceiverViewController {
                 }) { [unowned self] in self.wifiForm(adding: true) })
             }
             connection.append(.page(CWL("Wi-Fi 预设"), icon: ("list.bullet", .systemBlue), detail: { WiFiPresetStore.selected()?.ssid ?? CWL("未选择") }) { [unowned self] in self.presetsPage() })
-            connection.append(.info(CWL("当前输出"), headUnitOutput.selectedTitle))
+            connection.append(SettingsRow(
+                title: CWL("当前输出"),
+                icon: ("point.3.connected.trianglepath.dotted", .systemIndigo),
+                detail: { [unowned self] in self.headUnitOutput.selectedTitle },
+                kind: .info))
             connection.append(.page(CWL("输出设置"), icon: ("slider.horizontal.3", .systemGray)) { [unowned self] in self.headUnitPage() })
             if outputMode == .browser {
                 connection.append(.page(CWL("HTTPS 设置"), icon: ("lock.shield", .systemBlue)) { [unowned self] in self.httpsSettingsPage() })
@@ -2852,7 +2856,7 @@ extension ReceiverViewController {
             case .zeeho: return CWL("极核")
             case .cfmoto: return CWL("春风")
             case .tailing: return CWL("台铃")
-            case .other: return CWL("其他")
+            case .other: return CWL("其他（待加入）")
             }
         }
         var symbol: String {
@@ -2895,22 +2899,38 @@ extension ReceiverViewController {
 
     private func modelCategoryPage() -> SettingsPageController {
         page(CWL("车型选择")) { [unowned self] in
-            [SettingsSection(CWL("品牌"), Self.HeadUnitBrand.allCases.map { brand in
+            // 浏览器 / CarLife / AirPlay 不属于任何车机品牌，直接放在第一级。
+            let direct = HeadUnitOutput.menuOrder.filter { self.brand(of: $0) == .other }.map { mode -> SettingsRow in
+                var row = SettingsRow.action(mode.title) { [unowned self] in self.choose(mode) }
+                row.checked = { [unowned self] in self.outputMode == mode }
+                return row
+            }
+            let brands = HeadUnitBrand.allCases.map { brand in
                 SettingsRow.page(brand.title, icon: (brand.symbol, brand.color), detail: { [unowned self] in
-                    self.brand(of: self.outputMode) == brand ? self.outputMode.title : nil
+                    guard brand != .other, self.brand(of: self.outputMode) == brand else { return nil }
+                    return self.outputMode.title
                 }) { [unowned self] in self.modelListPage(brand) }
-            })]
+            }
+            return [
+                SettingsSection(CWL("直接输出"), direct),
+                SettingsSection(CWL("品牌"), brands)
+            ]
         }
     }
 
     private func modelListPage(_ brand: HeadUnitBrand) -> SettingsPageController {
         page(brand.title) { [unowned self] in
-            let rows = HeadUnitOutput.menuOrder.filter { self.brand(of: $0) == brand }.map { mode -> SettingsRow in
-                var row = SettingsRow.action(mode.title) { [unowned self] in self.choose(mode) }
-                row.checked = { [unowned self] in self.outputMode == mode }
-                return row
-            }
-            return [SettingsSection(nil, footer: CWL("选择后立即生效，并自动返回。"), rows)]
+            let rows = HeadUnitOutput.menuOrder
+                .filter { brand != .other && self.brand(of: $0) == brand }
+                .map { mode -> SettingsRow in
+                    var row = SettingsRow.action(mode.title) { [unowned self] in self.choose(mode) }
+                    row.checked = { [unowned self] in self.outputMode == mode }
+                    return row
+                }
+            let footer = brand == .other
+                ? CWL("暂无车型，后续加入后会出现在这里。")
+                : CWL("选择后立即生效，并自动返回。")
+            return [SettingsSection(nil, footer: footer, rows)]
         }
     }
 

@@ -50,7 +50,7 @@ final class TailingConnection: @unchecked Sendable {
     private var mediaStarted = false
     private var mediaSize: InstrumentFrameSize?
     private var isZeeho: Bool { profile.isZeeho }
-    private var dashboard: String { profile.isZeeho ? "极核" : "台铃" }
+    private var dashboard: String { profile.isZeeho ? CWL("极核") : CWL("台铃") }
 
     init(localIP: String, targetIP: String, profile: TailingDisplayProfile, phone: TailingPhoneInfo,
          ports: TailingPorts = .ios, identityProvider: @escaping () throws -> TailingIdentity = TailingIdentity.load,
@@ -97,13 +97,13 @@ final class TailingConnection: @unchecked Sendable {
         let reply = try TailingProtocol.readControl { try announcement.readExactly($0, timeout: 3) }
         guard reply.command == 0x70000011,
               try TailingProtocol.object(reply.payload)["status"] as? Bool == true else {
-            throw TailingError.protocolFailure("仪表未接受 iOS 投屏请求")
+            throw TailingError.protocolFailure(CWL("仪表未接受 iOS 投屏请求"))
         }
         let deadline = Date().addingTimeInterval(20)
         condition.lock()
         defer { condition.unlock() }
         while !closed && failure == nil && (signedHUID == nil || video == nil || !mediaStarted || (isZeeho && reverseControl == nil)) {
-            if !condition.wait(until: deadline) { throw TailingError.timeout("媒体会话未就绪，请退出官方投屏并重新开启仪表投屏") }
+            if !condition.wait(until: deadline) { throw TailingError.timeout(CWL("媒体会话未就绪，请退出官方投屏并重新开启仪表投屏")) }
         }
         try checkLocked()
         guard let mediaSize else { throw TailingError.protocolFailure("仪表启动了视频但未协商画面尺寸") }
@@ -123,7 +123,7 @@ final class TailingConnection: @unchecked Sendable {
         do {
             try socket.write(packet)
         } catch {
-            throw terminalError(or: TailingError.channel("发送 JPEG", error))
+            throw terminalError(or: TailingError.channel(CWL("发送 JPEG"), error))
         }
         return (pullWait, ProcessInfo.processInfo.systemUptime - writeStarted)
     }
@@ -140,7 +140,7 @@ final class TailingConnection: @unchecked Sendable {
             try socket.write(packet)
             sentH264Prefix = true
         } catch {
-            throw terminalError(or: TailingError.channel("发送 H.264", error))
+            throw terminalError(or: TailingError.channel(CWL("发送 H.264"), error))
         }
     }
 
@@ -159,11 +159,11 @@ final class TailingConnection: @unchecked Sendable {
         do {
             request = try TailingProtocol.readAuxiliary { try socket.readExactly($0, timeout: 5) }
         } catch {
-            throw terminalError(or: TailingError.channel("等待视频拉帧请求", error))
+            throw terminalError(or: TailingError.channel(CWL("等待视频拉帧请求"), error))
         }
         let pullWait = ProcessInfo.processInfo.systemUptime - pullStarted
         guard request.command == 0x72, request.payload.isEmpty else {
-            throw TailingError.protocolFailure(String(format: "视频通道收到 0x%04x（%d 字节），预期空载荷 0x72",
+            throw TailingError.protocolFailure(String(format: CWL("视频通道收到 0x%04x（%d 字节），预期空载荷 0x72"),
                                                      Int(request.command), request.payload.count))
         }
         return (socket, pullWait)
@@ -198,9 +198,9 @@ final class TailingConnection: @unchecked Sendable {
         if let reverse {
             do {
                 try sendMirrorControl(reverse, start: false, identifier: UInt32.max, timeout: 0.25)
-                log("极核已发送停止投屏通知")
+                log(CWL("极核已发送停止投屏通知"))
             } catch {
-                log("极核停止通知发送失败：\(error.localizedDescription)")
+                log(CWL("极核停止通知发送失败：{1}", [String(describing: error.localizedDescription)]))
             }
         }
         sockets.forEach { $0.close() }
@@ -228,7 +228,7 @@ final class TailingConnection: @unchecked Sendable {
         do {
             while true {
                 let socket = try tracked(server.accept(remoteIP: targetIP))
-                if isZeeho { log("极核 TCP\(port) 已回连") }
+                if isZeeho { log(CWL("极核 TCP{1} 已回连", [String(describing: port)])) }
                 if port == ports.video {
                     condition.lock()
                     if video == nil && !closed { video = socket; condition.broadcast() }
@@ -240,7 +240,7 @@ final class TailingConnection: @unchecked Sendable {
                             if port == ports.auxiliary { try auxiliary(socket) }
                             else { try control(socket) }
                         } catch {
-                            let channel = port == ports.auxiliary ? "媒体控制 TCP\(port)" : "会话控制 TCP\(port)"
+                            let channel = port == ports.auxiliary ? CWL("媒体控制 TCP{1}", [String(describing: port)]) : CWL("会话控制 TCP{1}", [String(describing: port)])
                             fail(TailingError.channel(channel, error))
                         }
                     }
@@ -268,18 +268,18 @@ final class TailingConnection: @unchecked Sendable {
                 break
             case 0x103e0 where isZeeho:
                 // 0x103e1 是收件确认。序列号校验结果使用独立命令。
-                log("极核收到序列号校验请求，等待仪表继续媒体协商")
+                log(CWL("极核收到序列号校验请求，等待仪表继续媒体协商"))
             case 0x10010:
                 let object = try TailingProtocol.object(request.payload)
                 guard let name = object["HUName"] as? String, !name.isEmpty, name.utf8.count <= 128,
                       let huid = object["HUID"] as? String, !huid.isEmpty else {
-                    throw TailingError.protocolFailure("仪表设备资料不完整")
+                    throw TailingError.protocolFailure(CWL("仪表设备资料不完整"))
                 }
                 if isZeeho && name == "TL-DASH-V2" {
-                    throw TailingError.protocolFailure("目标报告台铃 TL-DASH-V2，请检查仪表配置")
+                    throw TailingError.protocolFailure(CWL("目标报告台铃 TL-DASH-V2，请检查仪表配置"))
                 }
                 if !isZeeho && name != "TL-DASH-V2" {
-                    throw TailingError.protocolFailure("目标能力不是已支持的 TL-DASH-V2")
+                    throw TailingError.protocolFailure(CWL("目标能力不是已支持的 TL-DASH-V2"))
                 }
                 condition.lock(); let identity = self.identity; condition.unlock()
                 guard let identity else { throw TailingError.closed }
@@ -297,7 +297,7 @@ final class TailingConnection: @unchecked Sendable {
                 condition.lock()
                 self.huid = huid; signedHUID = signature; condition.broadcast()
                 condition.unlock()
-                log("仪表报告 HUName=\(name.debugDescription)，已回应本机 RSA2048 身份")
+                log(CWL("仪表报告 HUName={1}，已回应本机 RSA2048 身份", [String(describing: name.debugDescription)]))
                 continue
             case 0x10450:
                 let time = Int64(Date().timeIntervalSince1970 * 1_000)
@@ -310,7 +310,7 @@ final class TailingConnection: @unchecked Sendable {
                 // 仍等待身份、媒体配置与启动三个必要条件，不触发额外状态发送。
                 if !reportedUnsupported {
                     reportedUnsupported = true
-                    log("仪表报告不支持某项控制消息，继续核对必要媒体协商")
+                    log(CWL("仪表报告不支持某项控制消息，继续核对必要媒体协商"))
                 }
                 continue
             case 0x20021, 0x20031, 0x204c1, 0x20491, 0x20051, 0x20591, 0x205a1, 0x70000001:
@@ -322,8 +322,8 @@ final class TailingConnection: @unchecked Sendable {
                                request.command, request.payload.count, request.command + 1))
                     continue
                 }
-                // 车上按键（切歌、音量、模式等）可能从这条通道下来。先记录原始帧，
-                // 不认识的命令只记日志、不中断会话，方便确认真实字段格式。
+                // 车上按键可能从这条通道下来。先记录原始帧，不认识的命令只记日志、不中断会话，
+                // 方便确认真实字段格式（诊断用，不改变既有行为）。
                 logInput(String(format: "会话控制 0x%08x", request.command), request.payload)
                 continue
             }
@@ -357,7 +357,7 @@ final class TailingConnection: @unchecked Sendable {
         guard reverseControl == nil else { return }
         try sendMirrorControl(socket, start: true, identifier: 6, timeout: 0.25)
         reverseControl = socket
-        log("极核已发送开始投屏通知")
+        log(CWL("极核已发送开始投屏通知"))
         condition.broadcast()
     }
 
@@ -377,7 +377,7 @@ final class TailingConnection: @unchecked Sendable {
             do {
                 try socket.write(TailingProtocol.control(0x70000000, identifier: identifier))
                 identifier &+= 1
-            } catch { self.fail(TailingError.channel("发送会话保活", error)) }
+            } catch { self.fail(TailingError.channel(CWL("发送会话保活"), error)) }
         }
         condition.lock()
         let stopped = closed
@@ -401,7 +401,7 @@ final class TailingConnection: @unchecked Sendable {
             switch request.command {
             case 0x10:
                 guard request.payload.count >= 32 else {
-                    throw TailingError.protocolFailure("媒体配置载荷不足 32 字节")
+                    throw TailingError.protocolFailure(CWL("媒体配置载荷不足 32 字节"))
                 }
                 let reported = InstrumentFrameSize(width: Int(request.payload.uint16LE(0)),
                                                    height: Int(request.payload.uint16LE(2)))
@@ -417,7 +417,7 @@ final class TailingConnection: @unchecked Sendable {
                 condition.unlock()
                 guard let signature, let huid, let identity,
                       let echoed = Data(base64Encoded: request.payload.dropFirst(32), options: .ignoreUnknownCharacters),
-                      echoed == signature else { throw TailingError.protocolFailure("媒体身份回显不匹配") }
+                      echoed == signature else { throw TailingError.protocolFailure(CWL("媒体身份回显不匹配")) }
                 try identity.verify(echoed, huid: huid)
                 condition.lock()
                 if mediaStarted, mediaSize != size {
@@ -431,7 +431,7 @@ final class TailingConnection: @unchecked Sendable {
                 log("媒体身份回显校验通过，仪表报告 \(reported)，回应 \(isZeeho ? "H.264" : "JPEG") / \(size)")
             case 0x70:
                 condition.lock(); let ready = mediaSize != nil; condition.unlock()
-                guard ready else { throw TailingError.protocolFailure("仪表在配置完成前请求媒体启动") }
+                guard ready else { throw TailingError.protocolFailure(CWL("仪表在配置完成前请求媒体启动")) }
                 try socket.write(TailingProtocol.auxiliary(0x71, token: request.token))
                 condition.lock(); mediaStarted = true; condition.broadcast(); condition.unlock()
                 continue
@@ -441,8 +441,7 @@ final class TailingConnection: @unchecked Sendable {
             case 0x60:
                 response = 0x61; payload = try TailingProtocol.json(["supportFunction": 0])
             case 0x20:
-                // 仪表屏触摸/按键事件。当前只记录原始载荷（仪表是否上报、怎么编码都还不确定），
-                // 拿到真实帧之后再决定转发成 CarPlay 的触控还是媒体键。
+                // 仪表屏触摸/按键事件：当前只记录原始载荷，拿到真实帧后再决定转发方式。
                 logInput("反控触摸 0x20", request.payload)
                 continue
             default:

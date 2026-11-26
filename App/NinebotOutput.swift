@@ -127,11 +127,11 @@ final class NinebotOutput {
                 let controlPort = NinebotH264Packetizer.controlPort
                 video = try NinebotUDPSocket(localIP: local, localPort: videoPort, remoteIP: target, remotePort: videoPort)
                 control = try NinebotUDPSocket(localIP: local, localPort: controlPort, remoteIP: target, remotePort: controlPort)
-                report(sevenInch ? "等待九号 7 寸仪表回应…" : "等待九号仪表回应…")
+                report(sevenInch ? CWL("等待九号 7 寸仪表回应…") : CWL("等待九号仪表回应…"))
                 switch mode {
-                case .fourThreeInch: onLog("九号 4.3 寸：JPEG/RTP UDP 5012 · RTCP UDP 5013 · 480×272 · 最高 10 FPS")
-                case .sevenInch: onLog("九号 7 寸：KCP/UDP 5012 · RTCP/UDP 5013 · 1024×600 · H.264 Baseline 3.1 · 25 FPS")
-                case .fiveInch: onLog("九号 5 寸：UDP 5012/5013 · 848×480 · H.264 Baseline · 30 FPS")
+                case .fourThreeInch: onLog(CWL("九号 4.3 寸：JPEG/RTP UDP 5012 · RTCP UDP 5013 · 480×272 · 最高 10 FPS"))
+                case .sevenInch: onLog(CWL("九号 7 寸：KCP/UDP 5012 · RTCP/UDP 5013 · 1024×600 · H.264 Baseline 3.1 · 25 FPS"))
+                case .fiveInch: onLog(CWL("九号 5 寸：UDP 5012/5013 · 848×480 · H.264 Baseline · 30 FPS"))
                 }
                 let timer = DispatchSource.makeTimerSource(queue: queue)
                 timer.schedule(deadline: .now(), repeating: .milliseconds(sevenInch ? 10 : usesJPEG ? 20 : 33), leeway: .milliseconds(3))
@@ -208,7 +208,7 @@ final class NinebotOutput {
                 decoder = nil
                 lock.withLock { decoded = nil; decodeError = nil }
                 waitingForIDR = true
-                logCodecFailure("解码", error)
+                logCodecFailure(CWL("解码"), error)
                 requestKeyframe()
             }
         }
@@ -231,24 +231,24 @@ final class NinebotOutput {
                         lastReply = now
                         if kcp == nil {
                             kcp = try NinebotKCPVideo(socket: video, conversation: reply.conversation)
-                            onLog("九号 7 寸已协商 KCP 会话号：\(reply.conversation)")
+                            onLog(CWL("九号 7 寸已协商 KCP 会话号：{1}", [String(describing: reply.conversation)]))
                         }
                     } else if !sevenInch, let reply = NinebotH264Packetizer.heartbeatReplyCounter(response), counter &- reply < 8 {
                         if usesJPEG, lastReply.map({ now - $0 >= 4 }) ?? true {
-                            onLog("九号 4.3 寸收到 RTCP 回应 #\(reply)")
+                            onLog(CWL("九号 4.3 寸收到 RTCP 回应 #{1}", [String(describing: reply)]))
                         }
                         lastReply = now
                     }
                 }
                 if let lastReply, now - lastReply < 4 {
                     if sevenInch, !acknowledgedVideo {
-                        report(sentPicture ? "等待仪表确认视频数据…" : "仪表已回应，等待发送画面…")
+                        report(sentPicture ? CWL("等待仪表确认视频数据…") : CWL("仪表已回应，等待发送画面…"))
                     } else {
-                        report(sevenInch ? "仪表已确认收到数据，正在发送画面" :
-                               sentPicture ? "仪表已回应，正在发送画面" : "仪表已回应，等待发送画面…")
+                        report(sevenInch ? CWL("仪表已确认收到数据，正在发送画面") :
+                               sentPicture ? CWL("仪表已回应，正在发送画面") : CWL("仪表已回应，等待发送画面…"))
                     }
                 } else if now - origin > 4 {
-                    report("未收到仪表回应，请检查 Wi-Fi 和仪表 IP。")
+                    report(CWL("未收到仪表回应，请检查 Wi-Fi 和仪表 IP。"))
                 }
                 if usesJPEG {
                     try sendJPEGFrame(to: video, at: now)
@@ -258,7 +258,7 @@ final class NinebotOutput {
                     guard let kcp else { return }
                     if try kcp.poll(at: now), !acknowledgedVideo {
                         acknowledgedVideo = true
-                        onLog("九号 7 寸仪表已确认收到 KCP 视频数据")
+                        onLog(CWL("九号 7 寸仪表已确认收到 KCP 视频数据"))
                     }
                     guard kcp.canAcceptFrame, now >= nextVideoFrame else { return }
                 }
@@ -307,7 +307,7 @@ final class NinebotOutput {
                 lastJPEG = compositor.jpegRepresentation(of: fittedCanvas(latest, in: bounds), colorSpace: CGColorSpaceCreateDeviceRGB(),
                     options: [kCGImageDestinationLossyCompressionQuality as CIImageRepresentationOption: 0.8])
                 if lastJPEG == nil {
-                    logCodecFailure(" JPEG 编码", ConfigurationError("无法生成九号 4.3 寸画面"))
+                    logCodecFailure(CWL(" JPEG 编码"), ConfigurationError(CWL("无法生成九号 4.3 寸画面")))
                 }
             }
             guard let jpeg = lastJPEG else { return }
@@ -325,7 +325,7 @@ final class NinebotOutput {
             }
             if now - lastJPEGReport >= 5 {
                 lastJPEGReport = now
-                onLog("九号 4.3 寸 JPEG：已发送 \(jpegFramesSent) 帧，发送丢弃 \(jpegFramesDropped) 帧，当前 \(jpeg.count) 字节")
+                onLog(CWL("九号 4.3 寸 JPEG：已发送 {1} 帧，发送丢弃 {2} 帧，当前 {3} 字节", [String(describing: jpegFramesSent), String(describing: jpegFramesDropped), String(describing: jpeg.count)]))
             }
         }
 
@@ -358,7 +358,7 @@ final class NinebotOutput {
                 encoder?.invalidate()
                 encoder = nil
                 lock.withLock { encoded = nil }
-                logCodecFailure("编码", error)
+                logCodecFailure(CWL("编码"), error)
                 return nil
             }
         }
@@ -370,7 +370,7 @@ final class NinebotOutput {
             var buffer: CVPixelBuffer?
             let status = CVPixelBufferCreate(kCFAllocatorDefault, width, height, kCVPixelFormatType_32BGRA,
                                              [kCVPixelBufferIOSurfacePropertiesKey: [:]] as CFDictionary, &buffer)
-            guard status == kCVReturnSuccess, let buffer else { throw ConfigurationError("无法分配九号缩放画面（\(status)）") }
+            guard status == kCVReturnSuccess, let buffer else { throw ConfigurationError(CWL("无法分配九号缩放画面（{1}）", [String(describing: status)])) }
             let bounds = CGRect(x: 0, y: 0, width: width, height: height)
             compositor.render(fittedCanvas(image, in: bounds), to: buffer, bounds: bounds, colorSpace: CGColorSpaceCreateDeviceRGB())
             return buffer
@@ -397,7 +397,7 @@ final class NinebotOutput {
 
         private func logCodecFailure(_ stage: String, _ error: Error) {
             let now = ProcessInfo.processInfo.systemUptime
-            if now - lastCodecFailure > 4 { onLog("九号\(stage)恢复：\(error.localizedDescription)") }
+            if now - lastCodecFailure > 4 { onLog(CWL("九号{1}恢复：{2}", [String(describing: stage), String(describing: error.localizedDescription)])) }
             lastCodecFailure = now
         }
 
@@ -411,7 +411,7 @@ final class NinebotOutput {
         }
 
         private func fail(_ error: Error) {
-            let message = "九号输出失败：\(error.localizedDescription)"
+            let message = CWL("九号输出失败：{1}", [String(describing: error.localizedDescription)])
             onLog(message)
             report(message)
             close()

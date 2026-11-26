@@ -5,5 +5,5 @@ stage="$(mktemp -d)"
 trap 'rm -rf -- "$stage"' EXIT
 compiler="${SWIFTC:-swiftc}"
 "$compiler" -swift-version 5 "$root/App/TailingDisplayProfile.swift" \
-    "$root/App/TailingProtocol.swift" "$root/Tools/ZeehoSEPlusSizeSmoke.swift" -o "$stage/test-seplus"
+    "$root/Sources/TDSCarKitCore/Localization.swift" "$root/App/TailingProtocol.swift" "$root/Tools/ZeehoSEPlusSizeSmoke.swift" -o "$stage/test-seplus"
 "$stage/test-seplus"

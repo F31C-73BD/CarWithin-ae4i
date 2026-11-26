@@ -54,7 +54,7 @@ final class H264Surface: UIView {
             guard let self, !self.suspended, self.format != nil, self.rendererNeedsRecovery,
                   ProcessInfo.processInfo.systemUptime - self.lastRecovery >= 0.5 else { return }
             let error = note.userInfo?[AVSampleBufferDisplayLayerFailedToDecodeNotificationErrorKey] as? NSError
-            self.recover(reason: "本机解码失败\(error.map { "（\($0.code)）" } ?? "")")
+            self.recover(reason: CWL("本机解码失败{1}", [String(describing: error.map { "（\($0.code)）" } ?? "")]))
         }
     }
 
@@ -62,7 +62,7 @@ final class H264Surface: UIView {
         DispatchQueue.main.async { [weak self] in
             guard let self, !self.suspended, self.format != nil, self.display.requiresFlushToResumeDecoding,
                   ProcessInfo.processInfo.systemUptime - self.lastRecovery >= 0.5 else { return }
-            self.recover(reason: "系统要求恢复视频解码")
+            self.recover(reason: CWL("系统要求恢复视频解码"))
         }
     }
 
@@ -74,12 +74,12 @@ final class H264Surface: UIView {
         hasEnqueuedFrame = false
         checkingDisplaySince = nil
         lastRecovery = ProcessInfo.processInfo.systemUptime
-        if !awaitingKeyframe { onLog?("视频渲染器将在下一个关键帧恢复：\(reason)") }
+        if !awaitingKeyframe { onLog?(CWL("视频渲染器将在下一个关键帧恢复：{1}", [String(describing: reason)])) }
         awaitingKeyframe = true
         onKeyframeNeeded?(reason)
     }
 
-    required init?(coder: NSCoder) { fatalError("不支持从 Storyboard 创建 H264Surface") }
+    required init?(coder: NSCoder) { fatalError(CWL("不支持从 Storyboard 创建 H264Surface")) }
 
     @objc private func holdTouchOwnership(_ gesture: UILongPressGestureRecognizer) {
         // The recognizer intentionally does no work. It prevents the parent scroll view
@@ -91,13 +91,13 @@ final class H264Surface: UIView {
         suspended = false
         guard format != nil else { return }
         if skippedFrames || rendererNeedsRecovery {
-            recover(reason: "回到前台")
+            recover(reason: CWL("回到前台"))
         } else if awaitingKeyframe {
-            onKeyframeNeeded?("回到前台等待关键帧")
+            onKeyframeNeeded?(CWL("回到前台等待关键帧"))
         }
         if #available(iOS 17.4, *), !display.isReadyForDisplay {
             checkingDisplaySince = ProcessInfo.processInfo.systemUptime
-            onKeyframeNeeded?("回到前台等待显示")
+            onKeyframeNeeded?(CWL("回到前台等待显示"))
         }
     }
 
@@ -127,7 +127,7 @@ final class H264Surface: UIView {
                 nalUnitHeaderLength: 4, extensions: nil, formatDescriptionOut: &description)
         }
         guard status == noErr, let description else {
-            throw ProtocolError.malformed("\(sets.codec.displayName) 参数无效（\(status)）")
+            throw ProtocolError.malformed(CWL("{1} 参数无效（{2}）", [String(describing: sets.codec.displayName), String(describing: status)]))
         }
         return description
     }
@@ -148,12 +148,12 @@ final class H264Surface: UIView {
             display.stopRequestingMediaData(); requesting = false
             pending.removeAll(); pendingBytes = 0
             display.flush(); format = newFormat
-            onLog?("本机显示层使用 \(codec.displayName)")
+            onLog?(CWL("本机显示层使用 {1}", [String(describing: codec.displayName)]))
         }
         guard !picture.isEmpty else { return }
         guard let format else {
             // Parameter sets were lost (e.g. after a reset); only a new IDR carries them again.
-            if !awaitingKeyframe { awaitingKeyframe = true; onKeyframeNeeded?("缺少参数集") }
+            if !awaitingKeyframe { awaitingKeyframe = true; onKeyframeNeeded?(CWL("缺少参数集")) }
             return
         }
         let keyframe = picture.contains { codec.isRandomAccess($0) }
@@ -161,10 +161,10 @@ final class H264Surface: UIView {
         if rendererNeedsRecovery {
             // During lock transitions the decoder may stay unavailable for a short time.
             guard now - lastRecovery >= 0.5 else { return }
-            recover(reason: "显示层需要恢复：\(display.error?.localizedDescription ?? "系统状态变化")")
+            recover(reason: CWL("显示层需要恢复：{1}", [String(describing: display.error?.localizedDescription ?? CWL("系统状态变化"))]))
             guard !rendererNeedsRecovery else { return }
         } else if pending.count >= 30 || pendingBytes > 16 * 1024 * 1024 {
-            recover(reason: "显示积压 \(pending.count) 帧")
+            recover(reason: CWL("显示积压 {1} 帧", [String(describing: pending.count)]))
         } else if #available(iOS 17.4, *) {
             if display.isReadyForDisplay {
                 checkingDisplaySince = nil
@@ -172,7 +172,7 @@ final class H264Surface: UIView {
                 let started = checkingDisplaySince ?? now
                 checkingDisplaySince = started
                 if now - started >= 1.5, now - lastRecovery >= 1.5 {
-                    recover(reason: "收到视频帧后显示层仍未就绪")
+                    recover(reason: CWL("收到视频帧后显示层仍未就绪"))
                 }
             }
         }
@@ -185,9 +185,9 @@ final class H264Surface: UIView {
         var status = CMBlockBufferCreateWithMemoryBlock(allocator: kCFAllocatorDefault, memoryBlock: nil,
             blockLength: bytes.count, blockAllocator: kCFAllocatorDefault, customBlockSource: nil,
             offsetToData: 0, dataLength: bytes.count, flags: 0, blockBufferOut: &block)
-        guard status == noErr, let block else { throw ProtocolError.malformed("无法分配视频缓冲区") }
+        guard status == noErr, let block else { throw ProtocolError.malformed(CWL("无法分配视频缓冲区")) }
         status = bytes.withUnsafeBytes { CMBlockBufferReplaceDataBytes(with: $0.baseAddress!, blockBuffer: block, offsetIntoDestination: 0, dataLength: bytes.count) }
-        guard status == noErr else { throw ProtocolError.malformed("无法写入视频缓冲区") }
+        guard status == noErr else { throw ProtocolError.malformed(CWL("无法写入视频缓冲区")) }
         var sample: CMSampleBuffer?
         var size = bytes.count
         var timing = CMSampleTimingInfo(duration: .invalid,
@@ -195,7 +195,7 @@ final class H264Surface: UIView {
         status = CMSampleBufferCreateReady(allocator: kCFAllocatorDefault, dataBuffer: block, formatDescription: format,
             sampleCount: 1, sampleTimingEntryCount: 1, sampleTimingArray: &timing,
             sampleSizeEntryCount: 1, sampleSizeArray: &size, sampleBufferOut: &sample)
-        guard status == noErr, let sample else { throw ProtocolError.malformed("无法创建视频帧") }
+        guard status == noErr, let sample else { throw ProtocolError.malformed(CWL("无法创建视频帧")) }
         if let attachments = CMSampleBufferGetSampleAttachmentsArray(sample, createIfNecessary: true) as? [NSMutableDictionary] {
             attachments.first?[kCMSampleAttachmentKey_DisplayImmediately] = true
         }

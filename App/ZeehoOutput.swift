@@ -16,8 +16,8 @@ final class ZeehoOutput {
                phone: TailingPhoneInfo, onState: @escaping (String) -> Void,
                onLog: @escaping (String) -> Void, requestKeyframe: @escaping () -> Void) {
         stop()
-        // 自动档按像素数放大码率（2048×968 是旧款 1024×480 的 4 倍，再留一点给文字边缘），
-        // 手动档直接采用用户选的 Mbit/s。
+        // 自动档按像素数放大码率（2048×968 是旧款 1024×480 的 4 倍，再留余量给文字边缘），
+        // 手动档直接采用用户选的 Mbit/s；上限 24 Mbit/s 是为了压住帧率抖动。
         let automatic = min(24_000_000, Int((Double(frameRate.bitrate) * profile.bitrateScale).rounded()))
         let bitrate = bitrateOverride ?? automatic
         let level: CFString = encodeProfile == .main
@@ -117,7 +117,7 @@ final class ZeehoOutput {
         }
 
         func start() {
-            report("正在连接极核仪表…")
+            report(CWL("正在连接极核仪表…"))
             DispatchQueue.global(qos: .userInitiated).async { [self] in
                 do {
                     let size = try connection.start()
@@ -158,7 +158,7 @@ final class ZeehoOutput {
                                         return encode(image, size: size, at: ProcessInfo.processInfo.systemUptime, forceKeyframe: true)
                                     }
                                 }
-                                guard let recovered else { throw TailingError.timeout("等待 H.264 编码画面") }
+                                guard let recovered else { throw TailingError.timeout(CWL("等待 H.264 编码画面")) }
                                 try connection.sendH264(recovered.data)
                                 first = false
                                 reportFrameSent(size: size)
@@ -171,8 +171,8 @@ final class ZeehoOutput {
                     }
                 } catch {
                     if active {
-                        onLog("极核输出失败：\(error.localizedDescription)")
-                        report("极核连接失败：\(error.localizedDescription)")
+                        onLog(CWL("极核输出失败：{1}", [String(describing: error.localizedDescription)]))
+                        report(CWL("极核连接失败：{1}", [String(describing: error.localizedDescription)]))
                     }
                 }
                 connection.close()
@@ -344,7 +344,7 @@ final class ZeehoOutput {
                 decoder = nil
                 lock.withLock { decoded = nil; decodeError = nil }
                 waitingForIDR = true
-                logCodecFailure("解码", error)
+                logCodecFailure(CWL("解码"), error)
                 requestKeyframe()
             }
         }
@@ -386,7 +386,7 @@ final class ZeehoOutput {
                 encoder = nil
                 lastKeyframe = -.infinity
                 lock.withLock { encoded = nil }
-                logCodecFailure("编码", error)
+                logCodecFailure(CWL("编码"), error)
                 return nil
             }
         }
@@ -397,7 +397,7 @@ final class ZeehoOutput {
             var buffer: CVPixelBuffer?
             let status = CVPixelBufferCreate(kCFAllocatorDefault, width, height, kCVPixelFormatType_32BGRA,
                                              [kCVPixelBufferIOSurfacePropertiesKey: [:]] as CFDictionary, &buffer)
-            guard status == kCVReturnSuccess, let buffer else { throw ConfigurationError("无法分配极核缩放画面（\(status)）") }
+            guard status == kCVReturnSuccess, let buffer else { throw ConfigurationError(CWL("无法分配极核缩放画面（{1}）", [String(describing: status)])) }
             let source = CIImage(cvPixelBuffer: image)
             let destination = size.fittedRect(for: source.extent.size)
             let scale = destination.width / source.extent.width
@@ -419,7 +419,7 @@ final class ZeehoOutput {
                     onLog("极核首帧已发送 · \(size) · H.264 直传 · 源目标 \(frameRate.rawValue) FPS · 码率由 CarPlay 决定")
                 } else {
                     let actual = String(format: "%.1f", Double(bitrate) / 1_000_000)
-                    onLog("极核首帧已发送 · \(size) · 兼容转码 · \(encodeProfileName) · 目标 \(frameRate.rawValue) FPS · 码率 \(actual) Mbit/s")
+                    onLog("极核首帧已发送 · \(size) · 兼容转码 · 目标 \(frameRate.rawValue) FPS · 码率 \(actual) Mbit/s")
                 }
             }
             if let started = lastReply {
@@ -452,7 +452,7 @@ final class ZeehoOutput {
 
         private func logCodecFailure(_ stage: String, _ error: Error) {
             let now = ProcessInfo.processInfo.systemUptime
-            if now - lastCodecFailure > 4 { onLog("极核\(stage)恢复：\(error.localizedDescription)") }
+            if now - lastCodecFailure > 4 { onLog(CWL("极核{1}恢复：{2}", [String(describing: stage), String(describing: error.localizedDescription)])) }
             lastCodecFailure = now
         }
 
@@ -466,7 +466,7 @@ final class ZeehoOutput {
         }
 
         private func fail(_ error: Error) {
-            let message = "极核输出失败：\(error.localizedDescription)"
+            let message = CWL("极核输出失败：{1}", [String(describing: error.localizedDescription)])
             onLog(message)
             report(message)
             close()

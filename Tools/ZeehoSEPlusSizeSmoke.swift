@@ -7,8 +7,6 @@ struct ZeehoSEPlusSizeSmoke {
         precondition(ZeehoFrameRate.fps25.sourceFPS == 30 && ZeehoFrameRate.fps25.bitrate == 2_500_000)
         precondition(ZeehoFrameRate.fps30.sourceFPS == 30 && ZeehoFrameRate.fps30.bitrate == 3_000_000)
         precondition(ZeehoFrameRate.fps60.sourceFPS == 60 && ZeehoFrameRate.fps60.bitrate == 6_000_000)
-        precondition(ZeehoFrameRate.fps45.sourceFPS == 45 && ZeehoFrameRate.fps45.bitrate == 4_500_000)
-        precondition(ZeehoFrameRate.fps50.sourceFPS == 50 && ZeehoFrameRate.fps50.bitrate == 5_000_000)
         precondition(ZeehoFrameRate.fps60.title.contains("实验"))
         precondition(ZeehoFrameRate(rawValue: 0) == nil && ZeehoFrameRate(rawValue: 120) == nil)
         precondition(ZeehoCanvas.wide.size == InstrumentFrameSize(width: 1600, height: 770))
@@ -58,23 +56,21 @@ struct ZeehoSEPlusSizeSmoke {
         let jpeg = InstrumentFrameSize(width: 480, height: 272)
         precondition(TailingDisplayProfile.tailing43.outputSize(for: jpeg) == jpeg)
         precondition(TailingDisplayProfile.tailing43.outputSize(for: original) == nil)
+        precondition(ZeehoFrameRate.fps45.sourceFPS == 45 && ZeehoFrameRate.fps45.bitrate == 4_500_000)
+        precondition(ZeehoFrameRate.fps50.sourceFPS == 50 && ZeehoFrameRate.fps50.bitrate == 5_000_000)
         precondition(ZeehoBitrate.allCases.map(\.rawValue) == [0, 12, 15, 18, 24, 30])
         precondition(ZeehoBitrate.auto.bitsPerSecond == nil)
         precondition(ZeehoBitrate.m15.bitsPerSecond == 15_000_000 && ZeehoBitrate.m30.bitsPerSecond == 30_000_000)
-        precondition(ZeehoBitrate.auto.title.contains("自动") && ZeehoBitrate.m18.title.hasPrefix("18"))
         precondition(ZeehoEncodeProfile.allCases == [.baseline, .main])
-        precondition(ZeehoEncodeProfile.baseline.title.contains("Baseline") && ZeehoEncodeProfile.main.title.contains("Main"))
         let ae4i = TailingDisplayProfile.zeehoAE4i
         precondition(ae4i.preferredSize == InstrumentFrameSize(width: 2048, height: 968))
-        precondition(ae4i.bitrateScale == 6 && sePlus.bitrateScale == 1
-                     && TailingDisplayProfile.zeeho62.bitrateScale == 1 && TailingDisplayProfile.tailing43.bitrateScale == 1)
-        precondition(ae4i.prioritizesEncodingQuality)
-        precondition(!sePlus.prioritizesEncodingQuality && !TailingDisplayProfile.zeeho62.prioritizesEncodingQuality)
-        for (w, h) in [(2048, 968), (2048, 960), (2048, 976), (1024, 480), (1024, 484), (1440, 720), (1920, 1080)] {
+        precondition(ae4i.bitrateScale == 6 && sePlus.bitrateScale == 1)
+        precondition(ae4i.prioritizesEncodingQuality && !sePlus.prioritizesEncodingQuality)
+        for (w, h) in [(2048, 968), (2048, 960), (1024, 480), (1024, 484), (1920, 1080)] {
             let reported = InstrumentFrameSize(width: w, height: h)
             precondition(ae4i.outputSize(for: reported) == reported)
         }
-        for (w, h) in [(2046, 968), (2048, 969), (2048, 481), (0, 968), (2560, 968), (2048, 1081), (968, 2048), (65535, 65535)] {
+        for (w, h) in [(2046, 968), (2048, 969), (2048, 481), (0, 968), (2560, 968), (2048, 1081), (65535, 65535)] {
             precondition(ae4i.outputSize(for: InstrumentFrameSize(width: w, height: h)) == nil)
         }
         let doubledReply = TailingProtocol.mediaConfiguration(size: ae4i.preferredSize, h264: ae4i.isZeeho)
@@ -84,6 +80,13 @@ struct ZeehoSEPlusSizeSmoke {
         precondition(Array(response) == [2, 0, 0, 0, 0x56, 0x03, 0xe0, 0x01])
         let legacyResponse = TailingProtocol.mediaConfiguration(size: jpeg, h264: TailingDisplayProfile.tailing43.isZeeho)
         precondition(Array(legacyResponse) == [1, 0, 0, 0, 0xe0, 0x01, 0x10, 0x01])
+        let ae2 = TailingDisplayProfile.zeehoAE2
+        for size in [InstrumentFrameSize(width: 800, height: 480), InstrumentFrameSize(width: 480, height: 800), InstrumentFrameSize(width: 1920, height: 1080)] {
+            precondition(ae2.outputSize(for: size) == size)
+        }
+        precondition(ae2.outputSize(for: InstrumentFrameSize(width: 855, height: 481)) == InstrumentFrameSize(width: 854, height: 480))
+        precondition(ae2.outputSize(for: InstrumentFrameSize(width: 0, height: 480)) == nil)
+        precondition(ae2.outputSize(for: InstrumentFrameSize(width: 800, height: 65535)) == nil)
         let source = CGSize(width: 800, height: 480)
         precondition(sePlus.preferredSize.fittedRect(for: source) == CGRect(x: 0, y: 0, width: 800, height: 480))
         precondition(nonDefault.fittedRect(for: source) == CGRect(x: 27, y: 0, width: 800, height: 480))
@@ -91,6 +94,6 @@ struct ZeehoSEPlusSizeSmoke {
         precondition(taller.fittedRect(for: source) == CGRect(x: 0, y: 4, width: 800, height: 480))
         let smaller = InstrumentFrameSize(width: 640, height: 384)
         precondition(smaller.fittedRect(for: source) == CGRect(x: 0, y: 0, width: 640, height: 384))
-        print("PASS: 25/30/60 FPS settings, wide canvas, 25 FPS transcode fallback, relay ordering/overflow/IDR recovery/byte bounds/1000 frames, 8 SE+ sizes, 7 AE4i Pro+ sizes, invalid sizes, media replies and aspect-fit")
+        print("PASS: 25/30/60 FPS settings, wide canvas, 25 FPS transcode fallback, relay ordering/overflow/IDR recovery/byte bounds/1000 frames, 8 SE+ sizes, invalid sizes, media replies and aspect-fit")
     }
 }

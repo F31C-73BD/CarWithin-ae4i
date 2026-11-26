@@ -131,12 +131,12 @@ final class NativeReceiver {
                         profile: configuration.zeehoProfile, frameRate: configuration.zeehoFrameRate,
                         bitrateOverride: configuration.zeehoBitrate.bitsPerSecond,
                         encodeProfile: configuration.zeehoEncodeProfile,
-                        videoMode: configuration.zeehoVideoMode,
-                        sourceSize: InstrumentFrameSize(width: configuration.width, height: configuration.height), phone: phone,
-                        onState: { [weak self] in self?.onZeehoState?($0) },
                         onStats: { [weak self] fps, bps in
                             DispatchQueue.main.async { self?.onZeehoStats?(fps, bps) }
                         },
+                        videoMode: configuration.zeehoVideoMode,
+                        sourceSize: InstrumentFrameSize(width: configuration.width, height: configuration.height), phone: phone,
+                        onState: { [weak self] in self?.onZeehoState?($0) },
                         onLog: { [weak self] in self?.log($0) },
                         requestKeyframe: { [weak self] in self?.requestKeyFrame(reason: CWL("极核解码恢复")) })
                 }

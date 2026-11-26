@@ -123,9 +123,6 @@ final class NativeReceiver {
                     self.zeeho62.start(localAddress: configuration.address,
                         targetAddress: configuration.zeehoAutomaticAddress ? "" : target, phone: legacyPhone,
                         onState: { [weak self] in self?.onZeehoState?($0) },
-                        onStats: { [weak self] fps, bps in
-                            DispatchQueue.main.async { self?.onZeehoStats?(fps, bps) }
-                        },
                         onLog: { [weak self] in self?.log($0) },
                         requestKeyframe: { [weak self] in self?.requestKeyFrame(reason: "极核 6.2 寸解码恢复") })
                 } else {

@@ -128,6 +128,8 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
     private let zeehoCardStatus = UILabel()
     /// 极核卡片里的实时状态：帧率 / 码率 / 编码档位。
     private let zeehoStatsLabel = UILabel()
+    /// 极核卡片标题（随车型变化：品牌+型号+仪表连接）。
+    private var zeehoCardTitleLabel: UILabel?
     private let zeehoStatus = StatusLabel()
     private let zeehoAddressField = UITextField()
     private let zeehoSEPlusAddressField = UITextField()
@@ -181,12 +183,16 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         return options[index]
     }
     private var usesAutomaticZeehoAddress: Bool {
-        if pausesLocalPreviewWhenInactive { return zeehoSEPlusAutomaticSwitch.isOn }
+        if outputMode == .zeehoSEPlus { return zeehoSEPlusAutomaticSwitch.isOn }
         return (outputMode == .zeeho || outputMode == .zeehoAE4i) && zeeho62AutomaticSwitch.isOn
     }
     private var activeZeehoAddressField: UITextField {
         outputMode == .zeehoSEPlus ? zeehoSEPlusAddressField : zeehoAddressField
     }
+    private func updateConnectionCardTitle() {
+        zeehoCardTitleLabel?.text = "\(outputMode.title)仪表连接"
+    }
+
     private func updateZeehoStatus(_ message: String) {
         zeehoStatus.text = message
         zeehoCardStatus.text = message
@@ -583,7 +589,11 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         zeehoStatsLabel.adjustsFontForContentSizeCategory = true
         zeehoStatsLabel.isHidden = true
         configureConnectionCard(zeehoCard, title: "极核仪表连接", symbol: "scooter", color: .systemBlue,
-            instructions: CWL("让 iPhone 加入极核仪表 Wi-Fi，打开仪表投屏后启动 CarPlay。"), status: zeehoCardStatus)
+            instructions: CWL("让 iPhone 加入极核仪表 Wi-Fi，打开仪表投屏后启动 CarPlay。"), status: zeehoCardStatus,
+            onTitle: { [weak self] label in
+                self?.zeehoCardTitleLabel = label
+                self?.updateConnectionCardTitle()
+            })
         zeehoCard.addArrangedSubview(zeehoStatsLabel)
     let zeehoSettings = UIButton(type: .system)
         zeehoSettings.configuration = .tinted()
@@ -1149,7 +1159,8 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
 
     @discardableResult
     private func configureConnectionCard(_ card: UIStackView, title: String, symbol: String, color: UIColor,
-                                         instructions: String, status: UILabel) -> UILabel {
+                                         instructions: String, status: UILabel,
+                                         onTitle: ((UILabel) -> Void)? = nil) -> UILabel {
         configureOutputCard(card)
         let icon = UIImageView(image: UIImage(systemName: symbol))
         icon.tintColor = color
@@ -1159,7 +1170,8 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         titleLabel.text = title
         titleLabel.font = .preferredFont(forTextStyle: .headline)
         titleLabel.adjustsFontForContentSizeCategory = true
-        let header = UIStackView(arrangedSubviews: [icon, titleLabel])
+        onTitle?(titleLabel)
+    let header = UIStackView(arrangedSubviews: [icon, titleLabel])
         header.spacing = 8; header.alignment = .center
         let help = UILabel()
         help.text = instructions
@@ -1831,6 +1843,8 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         modeChanged()
         statusLabel.text = identity == nil ? CWL("需要导入 MFi 身份") : CWL("已停止")
         log(CWL("CarPlay 接收已停止"))
+        // 停止时自动存档一份日志，只保留最新，避免占空间。
+        _ = saveLogFile()
     }
 
     private func clearStartupHint() {
@@ -2087,9 +2101,58 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         }
     }
     @objc private func copyLog() { UIPasteboard.general.string = lines.joined(separator: "\n") }
+
+    /// 带环境头的完整日志文本，用于导出或自动存档。
+    private var logExportText: String {
+        let info = Bundle.main.infoDictionary ?? [:]
+        let version = info["CFBundleShortVersionString"] as? String ?? "-"
+        let build = info["CFBundleVersion"] as? String ?? "-"
+        let header = [
+            "CarWithin 日志",
+            "导出时间：\(DateFormatter.localizedString(from: Date(), dateStyle: .medium, timeStyle: .medium))",
+            "版本：\(version)（\(build)）",
+            "车型：\(outputMode.title)",
+            "系统：\(UIDevice.current.systemName) \(UIDevice.current.systemVersion)",
+        ]
+        return header.joined(separator: "\n") + "\n\n" + lines.joined(separator: "\n")
+    }
+
+    /// 写入 Documents，只保留最新一份（先删同前缀的旧文件）。
+    @discardableResult
+    private func saveLogFile() -> URL? {
+        guard !lines.isEmpty else { return nil }
+        let manager = FileManager.default
+        guard let documents = manager.urls(for: .documentDirectory, in: .userDomainMask).first else { return nil }
+        if let existing = try? manager.contentsOfDirectory(at: documents, includingPropertiesForKeys: nil) {
+            for url in existing where url.lastPathComponent.hasPrefix("CarWithin-日志") && url.pathExtension == "txt" {
+                try? manager.removeItem(at: url)
+            }
+        }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyyMMdd-HHmmss"
+        let url = documents.appendingPathComponent("CarWithin-日志-\(formatter.string(from: Date())).txt")
+        do {
+            try logExportText.write(to: url, atomically: true, encoding: .utf8)
+            return url
+        } catch {
+            log(CWL("日志保存失败：{1}", [String(describing: error.localizedDescription)]))
+            return nil
+        }
+    }
+
+    private func exportLog() {
+        guard let url = saveLogFile() else {
+            alert(CWL("导出失败"), CWL("日志为空或无法写入 Documents 目录。"))
+            return
+        }
+        let share = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+        share.popoverPresentationController?.sourceView = view
+        share.popoverPresentationController?.sourceRect = CGRect(x: view.bounds.midX, y: view.bounds.midY, width: 0, height: 0)
+        present(share, animated: true)
+    }
     private func log(_ message: String) {
         let timestamp = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
-        lines.append("\(timestamp)  \(message)"); if lines.count > 200 { lines.removeFirst(lines.count - 200) }
+        lines.append("\(timestamp)  \(message)"); if lines.count > 5000 { lines.removeFirst(lines.count - 5000) }
         if logView.window != nil {
             logView.text = lines.joined(separator: "\n")
             if !logView.text.isEmpty { logView.scrollRangeToVisible(NSRange(location: logView.text.utf16.count - 1, length: 1)) }
@@ -2276,6 +2339,7 @@ extension ReceiverViewController {
     }
     @objc private func headUnitOutputChanged() {
         saveHeadUnitOutput()
+        updateConnectionCardTitle()
         refreshVideoOutputSummary()
         updateVideoAspect()
         reloadVisibleSettings()
@@ -2923,7 +2987,7 @@ extension ReceiverViewController {
     private func modelChoiceSection() -> SettingsSection {
         SettingsSection(CWL("车型"), [
             .page(CWL("车型选择"), icon: ("car.fill", .systemIndigo), detail: { [unowned self] in
-                "\(self.brand(of: self.outputMode).title) · \(self.outputMode.title)"
+                self.outputMode.title
             }) { [unowned self] in self.modelCategoryPage() }
         ])
     }
@@ -3336,9 +3400,14 @@ extension ReceiverViewController {
         let controller = page(CWL("日志")) { [unowned self] in
             [
                 SettingsSection(footer: CWL("最近 200 条，不含 Wi-Fi 密码和 MFi 私钥。"), [.view(logView)]),
-                SettingsSection([.action(CWL("复制日志"), icon: ("doc.on.doc.fill", .systemBlue)) { [unowned self] in
-                    self.copyLog(); self.alert(CWL("已复制"), CWL("日志已复制到剪贴板。"))
-                }])
+                SettingsSection([
+                    .action(CWL("复制日志"), icon: ("doc.on.doc.fill", .systemBlue)) { [unowned self] in
+                        self.copyLog(); self.alert(CWL("已复制"), CWL("日志已复制到剪贴板。"))
+                    },
+                    .action(CWL("导出日志 TXT"), icon: ("square.and.arrow.up.fill", .systemGreen)) { [unowned self] in
+                        self.exportLog()
+                    }
+                ], footer: CWL("每次停止 CarPlay 时会自动保存一份到 App 的 Documents 目录，只保留最新一份。"))
             ]
         }
         logView.constraints.filter { $0.firstAttribute == .height }.forEach { $0.constant = 380 }

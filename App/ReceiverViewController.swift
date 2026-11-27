@@ -189,11 +189,30 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
     private var activeZeehoAddressField: UITextField {
         outputMode == .zeehoSEPlus ? zeehoSEPlusAddressField : zeehoAddressField
     }
+    private func prepareOutputGate() {
+        awaitingOutputConnection = waitsForExternalOutput
+        outputConnected = false
+    }
+
+    /// 仪表侧确认在投屏（或已收到拉帧请求、发出首帧）后调用。
+    private func markOutputConnected() {
+        awaitingOutputConnection = false
+        outputConnected = true
+        refreshInlinePreview()
+    }
+
+    private func refreshInlinePreview() {
+        let ready = !awaitingOutputConnection || outputConnected
+        inlineVideoContainer.isHidden = !(displayedVideo && ready)
+        if displayedVideo { videoActions.isHidden = !ready }
+    }
+
     private func updateConnectionCardTitle() {
         zeehoCardTitleLabel?.text = "\(outputMode.title)仪表连接"
     }
 
     private func updateZeehoStatus(_ message: String) {
+        if message.contains(CWL("正在投屏")) { markOutputConnected() }
         zeehoStatus.text = message
         zeehoCardStatus.text = message
         if !message.hasPrefix(CWL("正在投屏")) { zeehoStatsLabel.isHidden = true }
@@ -227,6 +246,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         }
     }
     private func updateCfmotoStatus(_ message: String) {
+        if message.contains(CWL("正在投屏")) { markOutputConnected() }
         cfmotoStatus.text = message
         cfmotoCardStatus.text = message
     }
@@ -243,6 +263,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         outputMode == .ninebot ? Self.ninebotFiveInstructions : Self.ninebotOfficialInstructions
     }
     private func updateNinebotStatus(_ message: String) {
+        if message.contains(CWL("正在投屏")) { markOutputConnected() }
         ninebotStatus.text = message
         ninebotCardStatus.text = message
     }
@@ -251,6 +272,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
     private let tailingAddressField = UITextField()
     private let tailingStatus = StatusLabel()
     private func updateTailingStatus(_ message: String) {
+        if message.contains(CWL("正在投屏")) { markOutputConnected() }
         tailingStatus.text = message; tailingCardStatus.text = message
     }
     private let carLifeCard = UIStackView()
@@ -376,6 +398,13 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
     private var fullscreenContainer: UIView?
     private var fullscreenConstraints: [NSLayoutConstraint] = []
     private var sessionHasVehicleButton = false
+    /// 外部输出（极核/春风/九号/台铃）要等仪表真的连上，才显示 App 内的预览，
+    /// 避免出现“卡片说连接失败、下面却有 CarPlay 画面”的误判。
+    private var awaitingOutputConnection = false
+    private var outputConnected = false
+    private var waitsForExternalOutput: Bool {
+        outputMode != .browser && outputMode != .carLife && outputMode != .airPlay
+    }
     private weak var fullscreenExitButton: UIButton?
     private var fullscreenFadeTimer: Timer?
     override var prefersStatusBarHidden: Bool { fullscreenContainer != nil }
@@ -722,13 +751,13 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
             do {
                 try self.videoSurface.enqueue(accessUnit: data, codec: codec)
                 if !self.displayedVideo {
-                    self.inlineVideoContainer.isHidden = false
                     self.displayedVideo = true; self.statusLabel.text = CWL("正在显示 CarPlay")
                     self.clearStartupHint()
                     self.networkStartupTask?.cancel()
                     self.networkStartupTask = nil
                     self.videoActions.isHidden = false; self.controlBar.isHidden = false
                     self.pictureInPictureButton.isHidden = self.pausesLocalPreviewWhenInactive
+                    self.refreshInlinePreview()
                     self.log(CWL("视频已送入本机显示层"))
                     if UIDevice.current.userInterfaceIdiom == .pad { self.showFullscreen() }
                     self.updatePictureInPicturePolicy()
@@ -1339,7 +1368,11 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
             videoSurface.trailingAnchor.constraint(equalTo: container.trailingAnchor), videoSurface.topAnchor.constraint(equalTo: container.topAnchor),
             videoSurface.bottomAnchor.constraint(equalTo: container.bottomAnchor)]
         NSLayoutConstraint.activate(fullscreenConstraints)
-        if !sessionHasVehicleButton { addFullscreenExitButton(to: container) }
+        // 不论 CarPlay 自己有没有画“车辆按钮”，都保留我们自己的退出按钮，避免困在全屏里。
+        addFullscreenExitButton(to: container)
+        let twoFingerTap = UITapGestureRecognizer(target: self, action: #selector(hideFullscreen))
+        twoFingerTap.numberOfTouchesRequired = 2
+        container.addGestureRecognizer(twoFingerTap)
         navigationController?.setNavigationBarHidden(true, animated: false)
         setNeedsStatusBarAppearanceUpdate(); setNeedsUpdateOfHomeIndicatorAutoHidden()
         if UIDevice.current.userInterfaceIdiom == .pad {
@@ -1688,7 +1721,8 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
             // Waiting until willResignActive can fail to acquire an audio session on CarAudio.
             if keepAliveSwitch.isOn { keepAlive.start() }
             view.endEditing(true)
-            running = true; modeControl.isEnabled = false; setEditing(false)
+            prepareOutputGate()
+        running = true; modeControl.isEnabled = false; setEditing(false)
             antBMS.recordingVehicleName = headUnitOutput.selectedTitle
             antBMS.setReceiving(true)
             startButton.setTitle(CWL("停止 CarPlay"), for: .normal)
@@ -1726,6 +1760,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         sessionHasVehicleButton = CarPlayInfo.vehicleButtonSize(in: config) != nil
         if keepAliveSwitch.isOn { keepAlive.start() }
         view.endEditing(true)
+        prepareOutputGate()
         running = true; modeControl.isEnabled = false; setEditing(false)
         antBMS.recordingVehicleName = headUnitOutput.selectedTitle
         antBMS.setReceiving(true)
@@ -1834,6 +1869,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         reportedScreen = nil; primaryViewer = nil; pendingRestartReason = nil
         pictureInPicture.stop(); keepAlive.stop(); skippedLocalVideo = false
         hideFullscreen(); videoActions.isHidden = true; controlBar.isHidden = true
+        awaitingOutputConnection = false; outputConnected = false
         displayedVideo = false; didRequestImmediatePiP = false
         videoSurface.reset(); inlineVideoContainer.isHidden = true
         receiver.onListening = nil; bluetooth.stop(); sameDevice.stop(); controlBrowser.stop(); receiver.stop()
@@ -2145,10 +2181,31 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
             alert(CWL("导出失败"), CWL("日志为空或无法写入 Documents 目录。"))
             return
         }
+        let name = url.lastPathComponent
+        let message = CWL("已保存为 {1}\n\n位置：\"文件\"App → 我的 iPhone → CarWithin", [name])
+        let sheet = UIAlertController(title: CWL("日志已保存"), message: message, preferredStyle: .alert)
+        sheet.addAction(UIAlertAction(title: CWL("好"), style: .default))
+        sheet.addAction(UIAlertAction(title: CWL("再分享/发送"), style: .default) { [weak self] _ in
+            self?.shareLogFile(url)
+        })
+        topMostController.present(sheet, animated: true)
+    }
+
+    /// 设置页是模态呈现的，分享面板必须从最上层控制器弹出，否则会被吞掉。
+    private var topMostController: UIViewController {
+        var top: UIViewController = self
+        while let presented = top.presentedViewController, !presented.isBeingDismissed {
+            top = presented
+        }
+        if let nav = top as? UINavigationController, let visible = nav.visibleViewController { return visible }
+        return top
+    }
+
+    private func shareLogFile(_ url: URL) {
         let share = UIActivityViewController(activityItems: [url], applicationActivities: nil)
         share.popoverPresentationController?.sourceView = view
         share.popoverPresentationController?.sourceRect = CGRect(x: view.bounds.midX, y: view.bounds.midY, width: 0, height: 0)
-        present(share, animated: true)
+        topMostController.present(share, animated: true)
     }
     private func log(_ message: String) {
         let timestamp = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
@@ -3399,8 +3456,8 @@ extension ReceiverViewController {
     fileprivate func logPage() -> SettingsPageController {
         let controller = page(CWL("日志")) { [unowned self] in
             [
-                SettingsSection(footer: CWL("最近 200 条，不含 Wi-Fi 密码和 MFi 私钥。"), [.view(logView)]),
-                SettingsSection(footer: CWL("每次停止 CarPlay 时会自动保存一份到 App 的 Documents 目录，只保留最新一份。"), [
+                SettingsSection(footer: CWL("最近 5000 条，不含 Wi-Fi 密码和 MFi 私钥。"), [.view(logView)]),
+                SettingsSection(footer: CWL("每次停止 CarPlay 时会自动保存一份到 App 的 Documents 目录，只保留最新一份。\n位置：『文件』App → 我的 iPhone → CarWithin，也可以点上面的『导出日志 TXT』另存或分享。"), [
                     .action(CWL("复制日志"), icon: ("doc.on.doc.fill", .systemBlue)) { [unowned self] in
                         self.copyLog(); self.alert(CWL("已复制"), CWL("日志已复制到剪贴板。"))
                     },

@@ -1157,7 +1157,6 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         card.layer.cornerCurve = .continuous
     }
 
-    @discardableResult
     // MARK: 车型选择（品牌 → 车型）、状态行、日志导出
 
     private enum HeadUnitBrand: Int, CaseIterable {
@@ -1361,6 +1360,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         topMostController.present(sheet, animated: true)
     }
 
+    @discardableResult
     private func configureConnectionCard(_ card: UIStackView, title: String, symbol: String, color: UIColor,
                                          instructions: String, status: UILabel,
                                          onTitle: ((UILabel) -> Void)? = nil) -> UILabel {

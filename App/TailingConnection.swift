@@ -407,6 +407,8 @@ final class TailingConnection: @unchecked Sendable {
         condition.unlock()
     }
 
+    private var loggedCommands = Set<UInt32>()
+
     private func auxiliary(_ socket: TailingSocket) throws {
         while true {
             // 此通道可能长时间空闲，停止通过 shutdown 唤醒。
@@ -417,6 +419,14 @@ final class TailingConnection: @unchecked Sendable {
             }
             var payload = Data()
             let response: UInt16
+            // 控制消息时间线：每条命令首次出现记一条，0x103b0（通道注册）每次完整打印，
+            // 方便对照“仪表什么时候断开、最后一条消息是什么”。
+            if loggedCommands.insert(request.command).inserted {
+                log(String(format: "[控制] 0x%08x %d 字节（首次）", request.command, request.payload.count))
+            }
+            if request.command == 0x103b0 {
+                logInput(String(format: "通道注册 0x%08x", request.command), request.payload)
+            }
             switch request.command {
             case 0x10:
                 guard request.payload.count >= 32 else {

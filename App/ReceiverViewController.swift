@@ -128,6 +128,9 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
     private let zeehoCardStatus = UILabel()
     /// 极核卡片里的实时状态：帧率 / 码率 / 编码档位。
     let zeehoStatsLabel = UILabel()
+    /// 从日志里识别出的仪表信息（HUName / 上报分辨率）。
+    var meterName: String?
+    var meterSizeText: String?
     /// 极核卡片标题（随车型变化：品牌+型号+仪表连接）。
     var zeehoCardTitleLabel: UILabel?
     /// 外部输出（极核/春风/九号/台铃）必须先连上仪表，App 内才显示预览。
@@ -490,6 +493,8 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         startupHint.numberOfLines = 0
         startupHint.adjustsFontForContentSizeCategory = true
         startupHint.isHidden = true
+        // 顶部「本机 CarPlay + 版本」标题行已按需求隐藏（版本号仍可在「关于」页查看）。
+        titleStack.isHidden = true
         let heroStack = UIStackView(arrangedSubviews: [titleStack, explanation, statusRow, startupHint, connectionHelp, receiverPicker, networkSummary])
         heroStack.axis = .vertical; heroStack.spacing = 14
         heroStack.isLayoutMarginsRelativeArrangement = true
@@ -1257,6 +1262,32 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         zeehoCardTitleLabel?.text = "\(outputMode.title)仪表连接"
     }
 
+    /// 从日志里识别仪表型号与分辨率，并给出选择提示。
+    private func detectMeterInfo(_ message: String) {
+        var changed = false
+        if let range = message.range(of: "HUName=\"") {
+            let rest = message[range.upperBound...]
+            if let end = rest.firstIndex(of: "\"") {
+                let name = String(rest[..<end])
+                if name != meterName { meterName = name; changed = true }
+            }
+        }
+        if let range = message.range(of: CWL("仪表报告 ")) {
+            let rest = message[range.upperBound...]
+            if let token = rest.split(separator: " ").first, token.contains("×"), token.count <= 12 {
+                let text = String(token)
+                if text != meterSizeText {
+                    meterSizeText = text
+                    changed = true
+                    if text == "2048×968", outputMode.zeehoProfile != nil, outputMode != .zeehoAE4i, !running {
+                        log(CWL("检测到仪表上报 2048×968，建议在「输出设置 → 车型选择」里选择「极核 AE4i Pro+ 6.2 寸」。"))
+                    }
+                }
+            }
+        }
+        if changed { reloadVisibleSettings() }
+    }
+
     private func updateZeehoStats(fps: Double, bitrate: Int) {
         let target = selectedZeehoFrameRate.rawValue
         let bitrateChoice: String
@@ -1267,8 +1298,10 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
             bitrateChoice = CWL("自动")
         }
         let profile = outputMode == .zeehoAE4i && selectedZeehoAE4iEncodeProfile == .main ? "Main" : "Baseline"
-        zeehoStatsLabel.text = String(format: CWL("帧率 %.1f/%d · 码率 %.1f/%@ · 编码 %@"),
-                                      fps, target, Double(bitrate) / 1_000_000, bitrateChoice, profile)
+        let meter = [meterName, meterSizeText].compactMap { $0 }.joined(separator: " · ")
+        let stats = String(format: CWL("帧率 %.1f/%d · 码率 %.1f/%@ · 编码 %@"),
+                           fps, target, Double(bitrate) / 1_000_000, bitrateChoice, profile)
+        zeehoStatsLabel.text = meter.isEmpty ? stats : meter + " · " + stats
         zeehoStatsLabel.isHidden = false
     }
 
@@ -2373,6 +2406,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
             logView.text = lines.joined(separator: "\n")
             if !logView.text.isEmpty { logView.scrollRangeToVisible(NSRange(location: logView.text.utf16.count - 1, length: 1)) }
         }
+        detectMeterInfo(message)
         NSLog("[CarWithin] %@", message)
     }
 }

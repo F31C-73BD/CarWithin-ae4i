@@ -421,6 +421,7 @@ final class ZeehoOutput {
                 encoder = nil
                 lastKeyframe = -.infinity
                 lock.withLock { encoded = nil }
+                // 下一次编码会重建 VideoToolbox 会话，并强制送 IDR，恢复通常 <300ms。
                 logCodecFailure(CWL("编码"), error)
                 return nil
             }

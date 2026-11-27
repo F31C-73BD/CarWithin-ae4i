@@ -129,8 +129,9 @@ final class TailingOutputSession: @unchecked Sendable {
                     if let lastSentJPEGBytes {
                         onLog?(String(format: CWL("台铃断流前最后一次 TCP 写入：JPEG %.1f KiB"), Double(lastSentJPEGBytes) / 1024))
                     }
-                    let message = CWL("台铃连接失败：{1}", [String(describing: error.localizedDescription)])
-                    onLog?(message)
+                    // 日志保留原始错误，界面只给用户看得懂的原因。
+                    onLog?(CWL("台铃连接失败（原始）：{1}", [String(describing: error.localizedDescription)]))
+                    let message = CWL("台铃连接失败：{1}", [String(describing: InstrumentErrorText.friendly(error.localizedDescription))])
                     onState?(message)
                     condition.lock(); failed = true; latestJPEG = nil; condition.unlock()
                     connection.close()

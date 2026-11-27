@@ -144,7 +144,7 @@ enum Zeeho62Legacy {
                     } catch {
                         if active {
                             onLog("极核输出失败：\(error.localizedDescription)")
-                            report("极核连接失败：\(error.localizedDescription)")
+                            report("极核连接失败：" + InstrumentErrorText.friendly(error.localizedDescription))
                         }
                     }
                     connection.close()

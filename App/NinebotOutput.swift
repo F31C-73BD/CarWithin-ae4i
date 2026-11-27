@@ -242,7 +242,7 @@ final class NinebotOutput {
                                sentPicture ? CWL("仪表已回应，正在发送画面") : CWL("仪表已回应，等待发送画面…"))
                     }
                 } else if now - origin > 4 {
-                    report(CWL("未收到仪表回应，请检查 Wi-Fi 和仪表 IP。"))
+                    report(CWL("九号仪表没有回应：确认手机连着九号仪表 Wi-Fi、IP 填对（常见 192.168.1.1），并在九号出行里打开投屏。"))
                 }
                 if usesJPEG {
                     try sendJPEGFrame(to: video, at: now)

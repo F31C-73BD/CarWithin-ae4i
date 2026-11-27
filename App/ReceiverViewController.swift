@@ -204,7 +204,9 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
     private func updateZeehoStatus(_ message: String) {
         if message.contains(CWL("正在投屏")) { markOutputConnected() }
         if message.contains(CWL("极核连接失败")) { scheduleAutoReconnect() }
-        if !message.hasPrefix(CWL("正在投屏")) { zeehoStatsLabel.isHidden = true }
+        if !message.hasPrefix(CWL("正在投屏")) {
+            if zeehoStatsLabel.text?.hasPrefix(CWL("诊断：")) != true { zeehoStatsLabel.isHidden = true }
+        }
         zeehoStatus.text = message
         zeehoCardStatus.text = message
     }
@@ -1266,6 +1268,20 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         zeehoCardTitleLabel?.text = "\(outputMode.title)仪表连接"
     }
 
+    /// 连接失败时汇总“能查到的信息”，写日志并用小字显示在极核卡片里。
+    private func zeehoFailureSummary(_ raw: String) -> String {
+        let local = ReceiverConfiguration.wifiIPv4Address() ?? "-"
+        let target = usesAutomaticZeehoAddress
+            ? CWL("自动查找")
+            : (activeZeehoAddressField.text?.isEmpty == false ? activeZeehoAddressField.text! : "-")
+        let ssid = WiFiPresetStore.selected()?.ssid ?? "-"
+        var ports: [String] = []
+        for port in ["10930", "10922", "10711", "10710"] where raw.contains(port) { ports.append(port) }
+        let portText = ports.isEmpty ? CWL("端口未知") : CWL("涉及端口") + " " + ports.joined(separator: "/")
+        return CWL("本机 {1} → 仪表 {2}（Wi-Fi：{3}）· {4} · 原始错误：{5}",
+                   [local, target, ssid, portText, raw])
+    }
+
     /// 从日志里识别仪表型号与分辨率，并给出选择提示。
     /// 仪表断开后自动“停止 + 重新启动”，省掉手动两步；连续 5 次失败就收手并给提示。
     private func scheduleAutoReconnect() {
@@ -1363,7 +1379,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         let version = info["CFBundleShortVersionString"] as? String ?? "-"
         let build = info["CFBundleVersion"] as? String ?? "-"
         let header = [
-            "CarWithin 日志",
+            "CarWithin \(version)（\(build)）日志",
             "导出时间：\(DateFormatter.localizedString(from: Date(), dateStyle: .medium, timeStyle: .medium))",
             "版本：\(version)（\(build)）",
             "车型：\(outputMode.title)",
@@ -1384,7 +1400,8 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         }
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyyMMdd-HHmmss"
-        let url = documents.appendingPathComponent("CarWithin-日志-\(formatter.string(from: Date())).txt")
+        let ver = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "-"
+        let url = documents.appendingPathComponent("CarWithin-日志-\(ver)-\(formatter.string(from: Date())).txt")
         do {
             try logExportText.write(to: url, atomically: true, encoding: .utf8)
             return url
@@ -2439,6 +2456,13 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
             if !logView.text.isEmpty { logView.scrollRangeToVisible(NSRange(location: logView.text.utf16.count - 1, length: 1)) }
         }
         detectMeterInfo(message)
+        if let range = message.range(of: CWL("极核连接失败（原始）：")) {
+            let raw = String(message[range.upperBound...])
+            let summary = zeehoFailureSummary(raw)
+            log(CWL("[诊断] ") + summary)
+            zeehoStatsLabel.text = CWL("诊断：") + summary
+            zeehoStatsLabel.isHidden = false
+        }
         NSLog("[CarWithin] %@", message)
     }
 }
@@ -3586,7 +3610,7 @@ extension ReceiverViewController {
     fileprivate func logPage() -> SettingsPageController {
         let controller = page(CWL("日志")) { [unowned self] in
             [
-                SettingsSection(footer: CWL("最近 5000 条，不含 Wi-Fi 密码和 MFi 私钥。"), [.view(logView)]),
+                SettingsSection(footer: CWL("版本 {1}（{2}）· 最近 5000 条，不含 Wi-Fi 密码和 MFi 私钥。", [Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "-", Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "-"]), [.view(logView)]),
                 SettingsSection(footer: CWL("每次停止 CarPlay 时会自动保存一份到 App 的 Documents 目录，只保留最新一份。位置：『文件』App → 我的 iPhone → CarWithin。"), [
                     .action(CWL("复制日志"), icon: ("doc.on.doc.fill", .systemBlue)) { [unowned self] in
                         self.copyLog(); self.alert(CWL("已复制"), CWL("日志已复制到剪贴板。"))

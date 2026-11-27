@@ -476,22 +476,7 @@ final class ZeehoOutput {
             if raw.contains("自动查找未发现仪表") || raw.contains("未发现仪表") {
                 return "手机没连上仪表 Wi-Fi，或仪表还没打开投屏（MotoPlay）。可关掉「自动查找仪表 IP」后手动填仪表地址再试。"
             }
-            if raw.contains("配置不符") || raw.contains("媒体尺寸") {
-                return "仪表分辨率与当前车型不匹配，请在「输出设置 → 车型选择」里换成对应车型。"
-            }
-            if raw.contains("会话已关闭") {
-                return "仪表断开了投屏，正在自动重连…（若连续三次失败，请点「停止 CarPlay」再启动）"
-            }
-            if raw.contains("连接被重置") || raw.contains("Connection reset") {
-                return "连接被仪表重置，通常是仪表退出投屏或 Wi-Fi 抖动，可重新启动一次。"
-            }
-            if raw.contains("超时") || raw.contains("timeout") {
-                return "仪表没有响应：请确认手机连的是仪表 Wi-Fi，且仪表已打开投屏。"
-            }
-            if raw.contains("MFi") || raw.contains("身份") {
-                return "MFi 身份异常，请在「关于」页重新导入身份文件。"
-            }
-            return raw
+            return InstrumentErrorText.friendly(raw)
         }
 
         private func logCodecFailure(_ stage: String, _ error: Error) {

@@ -143,3 +143,35 @@ enum TailingError: LocalizedError {
         }
     }
 }
+
+/// 把各协议层的中文原始错误翻译成用户看得懂、能照做的提示。
+/// 原始错误仍照常写日志，这里只影响界面显示。
+enum InstrumentErrorText {
+    static func friendly(_ raw: String) -> String {
+        if raw.contains("10930") {
+            return "连不上仪表的通知端口（10930）：仪表可能没打开投屏页，或这台仪表用的是另一套协议。可以先在「车型选择」里换一个同品牌型号再试。"
+        }
+        if raw.contains("会话已关闭") || raw.contains("会话已断开") {
+            return "仪表在协商或推流阶段断开了连接：多半是车型或分辨率不匹配。请换一个型号再试（分辨率相同的型号也可以试）。"
+        }
+        if raw.contains("配置不符") || raw.contains("媒体尺寸") {
+            return "仪表分辨率与当前车型不匹配：请在「输出设置 → 车型选择」里选对应分辨率的那一款。"
+        }
+        if raw.contains("自动查找未发现") || raw.contains("未发现仪表") {
+            return "没找到仪表：确认手机连着仪表 Wi-Fi，并在仪表上打开投屏；也可以关掉「自动查找仪表 IP」手动填地址。"
+        }
+        if raw.contains("未收到仪表回应") {
+            return "仪表没有回应：确认仪表 IP 填对、手机和仪表在同一个 Wi-Fi 下。"
+        }
+        if raw.contains("连接被重置") || raw.contains("Connection reset") {
+            return "连接被仪表重置：通常是仪表退出了投屏页或 Wi-Fi 抖动，重试一次通常能好。"
+        }
+        if raw.contains("超时") || raw.contains("timeout") {
+            return "仪表没有响应（超时）：确认仪表已打开投屏、Wi-Fi 稳定后再试。"
+        }
+        if raw.contains("MFi") || raw.contains("身份") {
+            return "MFi 身份异常：请在「关于」页重新导入身份文件。"
+        }
+        return raw
+    }
+}

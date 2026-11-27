@@ -179,9 +179,6 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         AVAudioSession.sharedInstance().currentRoute.outputs.map { "\($0.portName)（\($0.portType.rawValue)）" }.joined(separator: "、")
     }
     private var selectedZeehoFrameRate: ZeehoFrameRate {
-        if outputMode == .zeeho {
-            rows.append(.info(CWL("帧率与编码"), CWL("该型号（旧协议栈）固定 25 FPS / Baseline")))
-        }
         if outputMode == .zeehoAE4i { return selectedZeehoAE4iFrameRate }
         guard outputMode == .zeehoSEPlus else { return .fps25 }
         let rates = ZeehoFrameRate.allCases
@@ -3453,6 +3450,9 @@ extension ReceiverViewController {
                 }
                 var rows: [SettingsRow] = []
                 rows.append(.control("自动查找仪表 IP", icon: ("network", .systemBlue), outputMode == .zeehoSEPlus ? zeehoSEPlusAutomaticSwitch : zeeho62AutomaticSwitch))
+                if outputMode == .zeeho {
+                    rows.append(.info(CWL("帧率与编码"), CWL("该型号（旧协议栈）固定 25 FPS / Baseline")))
+                }
                 if outputMode == .zeehoAE4i {
                     rows.append(.info(CWL("画面规格"), CWL("跟随仪表上报尺寸 · 最高 2048×968 · H.264")))
                     rows.append(.control(CWL("仪表目标帧率"), icon: ("gauge.with.dots.needle.67percent", .systemGreen), zeehoAE4iFrameRateControl))
@@ -3504,7 +3504,7 @@ extension ReceiverViewController {
                 return [
                     SettingsSection(headUnitOutput.selectedTitle, [
                         .field(CWL("仪表 IP 地址"), activeNinebotAddressField, placeholder: outputMode == .ninebot43 ? "192.168.169.1" : "192.168.1.1"),
-                        rows.append(.info(CWL("帧率与编码"), CWL("九号由仪表协议固定（5 寸 848×480@30、7 寸 1024×600@25），不支持调节")))
+                        .info(CWL("帧率与编码"), CWL("九号由仪表协议固定（5 寸 848×480@30、7 寸 1024×600@25），不支持调节")),
                         .note(ninebotStatus)
                     ]),
                     SettingsSection(CWL("使用说明"), instructions)

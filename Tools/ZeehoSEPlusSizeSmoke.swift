@@ -70,7 +70,7 @@ struct ZeehoSEPlusSizeSmoke {
             let reported = InstrumentFrameSize(width: w, height: h)
             precondition(ae4i.outputSize(for: reported) == reported)
         }
-        for (w, h) in [(2046, 968), (2048, 969), (2048, 481), (0, 968), (2560, 968), (2048, 1081), (65535, 65535)] {
+        for (w, h) in [(2047, 968), (2048, 969), (2048, 481), (0, 968), (2560, 968), (2048, 1081), (65535, 65535)] {
             precondition(ae4i.outputSize(for: InstrumentFrameSize(width: w, height: h)) == nil)
         }
         let doubledReply = TailingProtocol.mediaConfiguration(size: ae4i.preferredSize, h264: ae4i.isZeeho)

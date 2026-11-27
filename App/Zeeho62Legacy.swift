@@ -4,7 +4,7 @@ import Foundation
 import VideoToolbox
 
 // Original CarWithin v1.0.3 6.2-inch stack, isolated from SE+ adaptations.
-// Only the connection prelude adds optional IP discovery and reuses its socket.
+// Connection prelude adds IP discovery; an optional BMS canvas precedes original scaling.
 enum Zeeho62Legacy {
     // BEGIN ORIGINAL62 output
     /// Runs codecs and UDP writes off the CarPlay receive queue.
@@ -15,6 +15,14 @@ enum Zeeho62Legacy {
 
         private let queue = DispatchQueue(label: "CarWithin.zeeho", qos: .userInitiated)
         private var session: Session?
+        private var bmsImage: CGImage?
+        private var bmsConfiguration = ANTBMSCardConfiguration()
+
+        func setBMSOverlay(_ image: CGImage?, configuration: ANTBMSCardConfiguration) {
+            bmsImage = image; bmsConfiguration = configuration
+            let current = session
+            queue.async { current?.setBMSOverlay(image, configuration: configuration) }
+        }
 
         deinit { stop() }
 
@@ -23,7 +31,11 @@ enum Zeeho62Legacy {
             stop()
             let next = Session(queue: queue, localAddress: localAddress, targetAddress: targetAddress, phone: phone, onState: onState, onLog: onLog, requestKeyframe: requestKeyframe)
             session = next
-            next.start()
+            let overlay = bmsImage, configuration = bmsConfiguration
+            queue.async {
+                next.setBMSOverlay(overlay, configuration: configuration)
+                next.start()
+            }
         }
 
         func append(_ data: Data, codec: VideoCodec, keyframe: Bool) {
@@ -58,6 +70,13 @@ enum Zeeho62Legacy {
             private var parameters = VideoParameterSets(codec: .h264)
             private var waitingForIDR = true
             private var latest: CVPixelBuffer?
+            private var bmsCanvas: InstrumentVideoCanvas?
+
+            func setBMSOverlay(_ image: CGImage?, configuration: ANTBMSCardConfiguration) {
+                guard let image else { bmsCanvas = nil; return }
+                if bmsCanvas == nil { bmsCanvas = InstrumentVideoCanvas() }
+                bmsCanvas?.setBMSOverlay(image, configuration: configuration)
+            }
             private lazy var compositor = CIContext(options: [.useSoftwareRenderer: true, .cacheIntermediates: false])
             private var fresh = false
             private let origin = ProcessInfo.processInfo.systemUptime
@@ -241,6 +260,7 @@ enum Zeeho62Legacy {
 
             private func fittedImage(_ image: CVPixelBuffer) throws -> CVPixelBuffer {
                 let width = ZeehoOutput.width, height = ZeehoOutput.height
+                if let bmsCanvas { return try bmsCanvas.fittedImage(image, width: width, height: height) }
                 if CVPixelBufferGetWidth(image) == width, CVPixelBufferGetHeight(image) == height { return image }
                 var buffer: CVPixelBuffer?
                 let status = CVPixelBufferCreate(kCFAllocatorDefault, width, height, kCVPixelFormatType_32BGRA,
@@ -844,11 +864,11 @@ enum Zeeho62Legacy {
 
         var errorDescription: String? {
             switch self {
-            case .protocolFailure(let text): return "仪表协议：\(text)"
-            case .timeout(let text): return "仪表等待超时：\(text)"
-            case .closed: return "仪表会话已关闭"
+            case .protocolFailure(let text): return "台铃协议：\(text)"
+            case .timeout(let text): return "台铃等待超时：\(text)"
+            case .closed: return "台铃会话已关闭"
             case .channel(let name, let error): return "\(name)：\(error.localizedDescription)"
-            case .system(let text, let code): return "仪表\(text)失败（\(code)）"
+            case .system(let text, let code): return "台铃\(text)失败（\(code)）"
             }
         }
     }

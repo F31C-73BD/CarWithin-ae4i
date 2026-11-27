@@ -59,8 +59,6 @@ final class NativeReceiver {
     private let zeeho = ZeehoOutput()
     private let zeeho62 = Zeeho62Legacy.ZeehoOutput()
     var onZeehoState: ((String) -> Void)?
-    /// Main thread: 极核投屏的实测帧率与生效码率（约每 5 秒一次）。
-    var onZeehoStats: ((Double, Int) -> Void)?
     private let ninebot = NinebotOutput()
     var onNinebotState: ((String) -> Void)?
     private let cfmoto5 = CfmotoOutput(name: "cfmoto5")
@@ -90,7 +88,12 @@ final class NativeReceiver {
     /// BMS updates are serialized with output startup; CoreGraphics images are
     /// immutable and reused by the instrument encoder until the next update.
     func setBMSOverlay(_ image: CGImage?, configuration: ANTBMSCardConfiguration) {
-        queue.async { [weak self] in self?.ninebot.setBMSOverlay(image, configuration: configuration) }
+        queue.async { [weak self] in
+            guard let self else { return }
+            self.ninebot.setBMSOverlay(image, configuration: configuration)
+            self.zeeho.setBMSOverlay(image, configuration: configuration)
+            self.zeeho62.setBMSOverlay(image, configuration: configuration)
+        }
     }
 
     func start(configuration: ReceiverConfiguration, identity: AccessoryIdentity, advertise: Bool = true,
@@ -131,13 +134,13 @@ final class NativeReceiver {
                         profile: configuration.zeehoProfile, frameRate: configuration.zeehoFrameRate,
                         bitrateOverride: configuration.zeehoBitrate.bitsPerSecond,
                         encodeProfile: configuration.zeehoEncodeProfile,
-                        onStats: { [weak self] fps, bps in
-                            DispatchQueue.main.async { self?.onZeehoStats?(fps, bps) }
-                        },
                         videoMode: configuration.zeehoVideoMode,
                         sourceSize: InstrumentFrameSize(width: configuration.width, height: configuration.height), phone: phone,
                         onState: { [weak self] in self?.onZeehoState?($0) },
                         onLog: { [weak self] in self?.log($0) },
+                        onStats: { [weak self] fps, bps in
+                            DispatchQueue.main.async { self?.onZeehoStats?(fps, bps) }
+                        },
                         requestKeyframe: { [weak self] in self?.requestKeyFrame(reason: CWL("极核解码恢复")) })
                 }
             }
@@ -152,7 +155,7 @@ final class NativeReceiver {
                 output.start(localAddress: configuration.address, targetAddress: target, phone: phone, profile: profile,
                              onState: { [weak self] in self?.onCfmotoState?($0) },
                              onLog: { [weak self] in self?.log($0) },
-                             requestKeyframe: { [weak self] in self?.requestKeyFrame(reason: "春风解码恢复") })
+                             requestKeyframe: { [weak self] in self?.requestKeyFrame(reason: "春风解码恢复") }, onGiveUp: { [weak self] in self?.queue.async { [weak self] in self?.fail("春风仪表持续连接失败超过3分钟，已停止CarPlay") } })
             }
             if let target = configuration.ninebotAddress {
                 self.ninebot.start(localAddress: configuration.address, targetAddress: target, mode: configuration.ninebotMode,
@@ -163,7 +166,7 @@ final class NativeReceiver {
             if let target = configuration.tailingAddress {
                 self.tailing.onLog = { [weak self] in self?.log($0) }
                 self.tailing.onState = { [weak self] in self?.onTailingState?($0) }
-                self.tailing.onKeyframeRequest = { [weak self] in self?.requestKeyFrame(reason: CWL("仪表解码恢复")) }
+                self.tailing.onKeyframeRequest = { [weak self] in self?.requestKeyFrame(reason: CWL("台铃解码恢复")) }
                 let phone = configuration.tailingPhoneInfo ?? TailingPhoneInfo(package: Bundle.main.bundleIdentifier ?? "CarWithin",
                     versionCode: Int(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0") ?? 0,
                     model: "iPhone", systemVersion: ProcessInfo.processInfo.operatingSystemVersionString,

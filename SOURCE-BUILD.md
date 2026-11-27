@@ -18,14 +18,3 @@ xcodebuild -project TDSCarKit.xcodeproj -scheme TDSCarKit \
 English: use the same source revision and bundled resources. Run the commands above for an unsigned arm64 Release build, or configure your own team and bundle identifier for device signing. Accessory credentials and Apple signing material are excluded. The project can compile without credentials, but a working CarPlay session requires a valid accessory identity. Local identity resources can be staged before running the generator; they must not be committed to a public repository.
 
 The combined distribution is AGPL-3.0-only. See `LICENSE`, `THIRD_PARTY_NOTICES.txt`, `LICENSES`, `ThirdParty`, `App/KCP-LICENSE.txt` and `App/ANTBMS-LICENSE.txt`.
-
-## 没有 Mac 时出未签名 IPA
-
-`.github/workflows/build-unsigned-ipa.yml` 在 GitHub 的 macOS 运行器上编译并打包未签名 IPA（关闭签名、自动从公开的 v1.0.4 发布包补齐 `App/BundledIdentity` 身份文件）。把源码推到自己的仓库，在 Actions 里运行 **Build unsigned IPA**，下载 `CarWithin-unsigned-ipa` 构件后按自己的方式签名安装。
-
-```sh
-xcodebuild -project TDSCarKit.xcodeproj -scheme TDSCarKit -configuration Release \
-  -sdk iphoneos -destination 'generic/platform=iOS' \
-  CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
-  CODE_SIGN_ENTITLEMENTS="" DEVELOPMENT_TEAM="" build
-```

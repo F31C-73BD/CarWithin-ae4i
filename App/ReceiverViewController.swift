@@ -127,9 +127,15 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
     private let zeehoCard = UIStackView()
     private let zeehoCardStatus = UILabel()
     /// 极核卡片里的实时状态：帧率 / 码率 / 编码档位。
-    private let zeehoStatsLabel = UILabel()
+    let zeehoStatsLabel = UILabel()
     /// 极核卡片标题（随车型变化：品牌+型号+仪表连接）。
-    private var zeehoCardTitleLabel: UILabel?
+    var zeehoCardTitleLabel: UILabel?
+    /// 外部输出（极核/春风/九号/台铃）必须先连上仪表，App 内才显示预览。
+    var awaitingOutputConnection = false
+    var outputConnected = false
+    var waitsForExternalOutput: Bool {
+        outputMode != .browser && outputMode != .carLife && outputMode != .airPlay
+    }
     private let zeehoStatus = StatusLabel()
     private let zeehoAddressField = UITextField()
     private let zeehoSEPlusAddressField = UITextField()
@@ -189,54 +195,23 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
     private var activeZeehoAddressField: UITextField {
         outputMode == .zeehoSEPlus ? zeehoSEPlusAddressField : zeehoAddressField
     }
-    private func prepareOutputGate() {
-        awaitingOutputConnection = waitsForExternalOutput
-        outputConnected = false
-    }
-
-    /// 仪表侧确认在投屏（或已收到拉帧请求、发出首帧）后调用。
-    private func markOutputConnected() {
-        awaitingOutputConnection = false
-        outputConnected = true
-        refreshInlinePreview()
-    }
-
-    private func refreshInlinePreview() {
-        let ready = !awaitingOutputConnection || outputConnected
-        inlineVideoContainer.isHidden = !(displayedVideo && ready)
-        if displayedVideo { videoActions.isHidden = !ready }
-    }
-
-    private func updateConnectionCardTitle() {
-        zeehoCardTitleLabel?.text = "\(outputMode.title)仪表连接"
-    }
-
     private func updateZeehoStatus(_ message: String) {
         if message.contains(CWL("正在投屏")) { markOutputConnected() }
+        if !message.hasPrefix(CWL("正在投屏")) { zeehoStatsLabel.isHidden = true }
         zeehoStatus.text = message
         zeehoCardStatus.text = message
-        if !message.hasPrefix(CWL("正在投屏")) { zeehoStatsLabel.isHidden = true }
-    }
-
-    /// 编码器每 5 秒回报一次：实测帧率 / 生效码率（编码档位取自当前选择）。
-    private func updateZeehoStats(fps: Double, bitrate: Int) {
-        let target = selectedZeehoFrameRate.rawValue
-        let bitrateChoice: String
-        if outputMode == .zeehoAE4i {
-            let option = selectedZeehoAE4iBitrate
-            bitrateChoice = option == .auto ? CWL("自动") : "\(option.rawValue) Mbit/s"
-        } else {
-            bitrateChoice = CWL("自动")
-        }
-        let profile = outputMode == .zeehoAE4i && selectedZeehoAE4iEncodeProfile == .main ? "Main" : "Baseline"
-        zeehoStatsLabel.text = String(format: CWL("帧率 %.1f/%d · 码率 %.1f/%@ · 编码 %@"),
-                                      fps, target, Double(bitrate) / 1_000_000, bitrateChoice, profile)
-        zeehoStatsLabel.isHidden = false
     }
     private let cfmotoCard = UIStackView()
     private let cfmotoCardStatus = UILabel()
     private let cfmotoStatus = StatusLabel()
     private let cfmotoAddressField = UITextField()
+    private let instrumentAutoStartSwitch = UISwitch()
+    private var instrumentAutoStartTimer: Timer?
+    private var instrumentAutoStartProbing = false
+    private var instrumentAutoStartSuppressed: String?
+    private var instrumentAutoStartGeneration = UUID()
+
+    /// 春风 5 寸 / 6.2 寸共用地址与端口，只有画面规格不同。
     /// 春风 5 寸 / 6.2 寸共用地址与端口，只有画面规格不同。
     private var cfmotoProfile: CfmotoProfile? {
         switch outputMode {
@@ -246,7 +221,6 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         }
     }
     private func updateCfmotoStatus(_ message: String) {
-        if message.contains(CWL("正在投屏")) { markOutputConnected() }
         cfmotoStatus.text = message
         cfmotoCardStatus.text = message
     }
@@ -263,7 +237,6 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         outputMode == .ninebot ? Self.ninebotFiveInstructions : Self.ninebotOfficialInstructions
     }
     private func updateNinebotStatus(_ message: String) {
-        if message.contains(CWL("正在投屏")) { markOutputConnected() }
         ninebotStatus.text = message
         ninebotCardStatus.text = message
     }
@@ -272,7 +245,6 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
     private let tailingAddressField = UITextField()
     private let tailingStatus = StatusLabel()
     private func updateTailingStatus(_ message: String) {
-        if message.contains(CWL("正在投屏")) { markOutputConnected() }
         tailingStatus.text = message; tailingCardStatus.text = message
     }
     private let carLifeCard = UIStackView()
@@ -304,9 +276,10 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
     private let headUnitOutput = ChoiceMenu(items: HeadUnitOutput.menuOrder.map(\.title))
     private enum HeadUnitOutput: Int {
         // Persisted in headUnitOutputV2. Append new modes after existing values.
-        case browser, carLife, airPlay, tailing, ninebot, zeeho, ninebotSeven, ninebot43, zeehoSEPlus, zeehoAE2, cfmoto5, cfmoto62, zeehoAE4i
+        case browser, carLife, airPlay, tailing, ninebot, zeeho, ninebotSeven, ninebot43, zeehoSEPlus, zeehoAE2, cfmoto5, cfmoto62
+        case zeehoAE4i = 26
         // Display order is independent of the persisted raw values above.
-        static let menuOrder: [Self] = [.browser, .carLife, .airPlay, .ninebot43, .ninebot, .ninebotSeven, .tailing, .zeeho, .zeehoAE4i, .zeehoSEPlus, .zeehoAE2, .cfmoto5, .cfmoto62]
+        static let menuOrder: [Self] = [.browser, .carLife, .airPlay, .ninebot43, .ninebot, .ninebotSeven, .tailing, .zeeho, .zeehoSEPlus, .zeehoAE2, .zeehoAE4i, .cfmoto5, .cfmoto62]
         var menuIndex: Int { Self.menuOrder.firstIndex(of: self)! }
         var title: String {
             switch self {
@@ -398,13 +371,6 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
     private var fullscreenContainer: UIView?
     private var fullscreenConstraints: [NSLayoutConstraint] = []
     private var sessionHasVehicleButton = false
-    /// 外部输出（极核/春风/九号/台铃）要等仪表真的连上，才显示 App 内的预览，
-    /// 避免出现“卡片说连接失败、下面却有 CarPlay 画面”的误判。
-    private var awaitingOutputConnection = false
-    private var outputConnected = false
-    private var waitsForExternalOutput: Bool {
-        outputMode != .browser && outputMode != .carLife && outputMode != .airPlay
-    }
     private weak var fullscreenExitButton: UIButton?
     private var fullscreenFadeTimer: Timer?
     override var prefersStatusBarHidden: Bool { fullscreenContainer != nil }
@@ -524,9 +490,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         startupHint.numberOfLines = 0
         startupHint.adjustsFontForContentSizeCategory = true
         startupHint.isHidden = true
-        // 顶部「本机 CarPlay + 版本」标题行已按需求隐藏（版本号仍可在「关于」页查看）。
-    titleStack.isHidden = true
-    let heroStack = UIStackView(arrangedSubviews: [titleStack, explanation, statusRow, startupHint, connectionHelp, receiverPicker, networkSummary])
+        let heroStack = UIStackView(arrangedSubviews: [titleStack, explanation, statusRow, startupHint, connectionHelp, receiverPicker, networkSummary])
         heroStack.axis = .vertical; heroStack.spacing = 14
         heroStack.isLayoutMarginsRelativeArrangement = true
         heroStack.directionalLayoutMargins = NSDirectionalEdgeInsets(top: 22, leading: 20, bottom: 22, trailing: 20)
@@ -612,19 +576,19 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         carLifeCard.addArrangedSubview(carLifeSettings)
         stack.addArrangedSubview(carLifeCard)
 
-        zeehoStatsLabel.font = .preferredFont(forTextStyle: .footnote)
-        zeehoStatsLabel.textColor = .secondaryLabel
-        zeehoStatsLabel.numberOfLines = 0
-        zeehoStatsLabel.adjustsFontForContentSizeCategory = true
-        zeehoStatsLabel.isHidden = true
         configureConnectionCard(zeehoCard, title: "极核仪表连接", symbol: "scooter", color: .systemBlue,
             instructions: CWL("让 iPhone 加入极核仪表 Wi-Fi，打开仪表投屏后启动 CarPlay。"), status: zeehoCardStatus,
             onTitle: { [weak self] label in
                 self?.zeehoCardTitleLabel = label
                 self?.updateConnectionCardTitle()
             })
+        zeehoStatsLabel.font = .preferredFont(forTextStyle: .footnote)
+        zeehoStatsLabel.textColor = .secondaryLabel
+        zeehoStatsLabel.numberOfLines = 0
+        zeehoStatsLabel.adjustsFontForContentSizeCategory = true
+        zeehoStatsLabel.isHidden = true
         zeehoCard.addArrangedSubview(zeehoStatsLabel)
-    let zeehoSettings = UIButton(type: .system)
+        let zeehoSettings = UIButton(type: .system)
         zeehoSettings.configuration = .tinted()
         zeehoSettings.configuration?.title = CWL("连接设置")
         zeehoSettings.addAction(UIAction { [weak self] _ in self?.revealSettings(output: true) }, for: .touchUpInside)
@@ -751,6 +715,8 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
             do {
                 try self.videoSurface.enqueue(accessUnit: data, codec: codec)
                 if !self.displayedVideo {
+                    self.displayedVideo = true
+                    self.refreshInlinePreview()
                     self.displayedVideo = true; self.statusLabel.text = CWL("正在显示 CarPlay")
                     self.clearStartupHint()
                     self.networkStartupTask?.cancel()
@@ -985,7 +951,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
             let icon = ReceiverConfiguration.iconSizes[max(0, iconSizeControl.selectedSegmentIndex)].widthMM
             // 按偶数对齐：H.264 4:2:0 不接受 515 这样的奇数高度。
             return DisplayPlan(width: cfmoto.encodeWidth, height: cfmoto.encodeHeight,
-                               fps: cfmoto.fps, codec: .h264, iconWidthMM: icon)
+                               fps: cfmoto.sourceFPS, codec: .h264, iconWidthMM: icon)
         }
         if let profile = outputMode.zeehoProfile {
             let icon = ReceiverConfiguration.iconSizes[max(0, iconSizeControl.selectedSegmentIndex)].widthMM
@@ -1064,7 +1030,12 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
     }
     private func updateVideoAspect() {
         antBMS.recordingVehicleName = headUnitOutput.selectedTitle
-        antBMS.aspectRatio = outputMode == .ninebotSeven ? 1024 / 600 : 848 / 480
+        if let profile = outputMode.zeehoProfile {
+            let size = profile == .zeehoSEPlus ? selectedZeehoCanvas.size : profile.preferredSize
+            antBMS.aspectRatio = CGFloat(size.width) / CGFloat(size.height)
+        } else {
+            antBMS.aspectRatio = outputMode == .ninebotSeven ? 1024 / 600 : outputMode == .ninebot43 ? 480 / 272 : 848 / 480
+        }
         guard videoHeight != nil else { return }
         let plan = running ? (liveDisplay ?? planDisplay(for: targetScreen)) : planDisplay(for: targetScreen)
         let width = plan.width, height = plan.height
@@ -1187,6 +1158,209 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
     }
 
     @discardableResult
+    // MARK: 车型选择（品牌 → 车型）、状态行、日志导出
+
+    private enum HeadUnitBrand: Int, CaseIterable {
+        case ninebot, zeeho, cfmoto, tailing, other
+
+        var title: String {
+            switch self {
+            case .ninebot: return CWL("九号")
+            case .zeeho: return CWL("极核")
+            case .cfmoto: return CWL("春风")
+            case .tailing: return CWL("台铃")
+            case .other: return CWL("其他（待加入）")
+            }
+        }
+        var symbol: String {
+            switch self {
+            case .ninebot, .zeeho: return "scooter"
+            case .cfmoto: return "car.fill"
+            case .tailing: return "car"
+            case .other: return "globe"
+            }
+        }
+        var color: UIColor {
+            switch self {
+            case .ninebot: return .systemGreen
+            case .zeeho: return .systemBlue
+            case .cfmoto: return .systemTeal
+            case .tailing: return .systemOrange
+            case .other: return .systemGray
+            }
+        }
+    }
+
+    private func brand(of mode: HeadUnitOutput) -> HeadUnitBrand {
+        switch mode {
+        case .ninebot, .ninebotSeven, .ninebot43: return .ninebot
+        case .zeeho, .zeehoAE4i, .zeehoSEPlus, .zeehoAE2: return .zeeho
+        case .cfmoto5, .cfmoto62: return .cfmoto
+        case .tailing: return .tailing
+        case .browser, .carLife, .airPlay: return .other
+        }
+    }
+
+    private func modelChoiceSection() -> SettingsSection {
+        SettingsSection(CWL("车型"), [
+            .page(CWL("车型选择"), icon: ("car.fill", .systemIndigo), detail: { [unowned self] in
+                self.outputMode.title
+            }) { [unowned self] in self.modelCategoryPage() }
+        ])
+    }
+
+    private func modelCategoryPage() -> SettingsPageController {
+        page(CWL("车型选择")) { [unowned self] in
+            let direct = HeadUnitOutput.menuOrder.filter { self.brand(of: $0) == .other }.map { mode -> SettingsRow in
+                var row = SettingsRow.action(mode.title) { [unowned self] in self.choose(mode) }
+                row.checked = { [unowned self] in self.outputMode == mode }
+                return row
+            }
+            let brands = HeadUnitBrand.allCases.map { brand in
+                SettingsRow.page(brand.title, icon: (brand.symbol, brand.color), detail: { [unowned self] in
+                    guard brand != .other, self.brand(of: self.outputMode) == brand else { return nil }
+                    return self.outputMode.title
+                }) { [unowned self] in self.modelListPage(brand) }
+            }
+            return [
+                SettingsSection(CWL("直接输出"), direct),
+                SettingsSection(CWL("品牌"), brands)
+            ]
+        }
+    }
+
+    private func modelListPage(_ brand: HeadUnitBrand) -> SettingsPageController {
+        page(brand.title) { [unowned self] in
+            let rows = HeadUnitOutput.menuOrder
+                .filter { brand != .other && self.brand(of: $0) == brand }
+                .map { mode -> SettingsRow in
+                    var row = SettingsRow.action(mode.title) { [unowned self] in self.choose(mode) }
+                    row.checked = { [unowned self] in self.outputMode == mode }
+                    return row
+                }
+            let footer = brand == .other
+                ? CWL("暂无车型，后续加入后会出现在这里。")
+                : CWL("选择后立即生效，并自动返回。")
+            return [SettingsSection(nil, footer: footer, rows)]
+        }
+    }
+
+    private func choose(_ mode: HeadUnitOutput) {
+        guard let index = HeadUnitOutput.menuOrder.firstIndex(of: mode) else { return }
+        headUnitOutput.selectedSegmentIndex = index
+        headUnitOutputChanged()
+        settingsNavigation?.popToRootViewController(animated: true)
+    }
+
+    // MARK: 极核卡片：标题与实时状态
+
+    private func updateConnectionCardTitle() {
+        zeehoCardTitleLabel?.text = "\(outputMode.title)仪表连接"
+    }
+
+    private func updateZeehoStats(fps: Double, bitrate: Int) {
+        let target = selectedZeehoFrameRate.rawValue
+        let bitrateChoice: String
+        if outputMode == .zeehoAE4i {
+            let option = selectedZeehoAE4iBitrate
+            bitrateChoice = option == .auto ? CWL("自动") : "\(option.rawValue) Mbit/s"
+        } else {
+            bitrateChoice = CWL("自动")
+        }
+        let profile = outputMode == .zeehoAE4i && selectedZeehoAE4iEncodeProfile == .main ? "Main" : "Baseline"
+        zeehoStatsLabel.text = String(format: CWL("帧率 %.1f/%d · 码率 %.1f/%@ · 编码 %@"),
+                                      fps, target, Double(bitrate) / 1_000_000, bitrateChoice, profile)
+        zeehoStatsLabel.isHidden = false
+    }
+
+    // MARK: 预览门控：外部输出连上仪表后才显示画面
+
+    private func prepareOutputGate() {
+        awaitingOutputConnection = waitsForExternalOutput
+        outputConnected = false
+    }
+
+    private func markOutputConnected() {
+        awaitingOutputConnection = false
+        outputConnected = true
+        refreshInlinePreview()
+    }
+
+    private func refreshInlinePreview() {
+        let ready = !awaitingOutputConnection || outputConnected
+        inlineVideoContainer.isHidden = !(displayedVideo && ready)
+        if displayedVideo { videoActions.isHidden = !ready }
+    }
+
+    // MARK: 日志导出与自动存档
+
+    private var logExportText: String {
+        let info = Bundle.main.infoDictionary ?? [:]
+        let version = info["CFBundleShortVersionString"] as? String ?? "-"
+        let build = info["CFBundleVersion"] as? String ?? "-"
+        let header = [
+            "CarWithin 日志",
+            "导出时间：\(DateFormatter.localizedString(from: Date(), dateStyle: .medium, timeStyle: .medium))",
+            "版本：\(version)（\(build)）",
+            "车型：\(outputMode.title)",
+            "系统：\(UIDevice.current.systemName) \(UIDevice.current.systemVersion)",
+        ]
+        return header.joined(separator: "\n") + "\n\n" + lines.joined(separator: "\n")
+    }
+
+    @discardableResult
+    private func saveLogFile() -> URL? {
+        guard !lines.isEmpty else { return nil }
+        let manager = FileManager.default
+        guard let documents = manager.urls(for: .documentDirectory, in: .userDomainMask).first else { return nil }
+        if let existing = try? manager.contentsOfDirectory(at: documents, includingPropertiesForKeys: nil) {
+            for url in existing where url.lastPathComponent.hasPrefix("CarWithin-日志") && url.pathExtension == "txt" {
+                try? manager.removeItem(at: url)
+            }
+        }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyyMMdd-HHmmss"
+        let url = documents.appendingPathComponent("CarWithin-日志-\(formatter.string(from: Date())).txt")
+        do {
+            try logExportText.write(to: url, atomically: true, encoding: .utf8)
+            return url
+        } catch {
+            log(CWL("日志保存失败：{1}", [String(describing: error.localizedDescription)]))
+            return nil
+        }
+    }
+
+    private var topMostController: UIViewController {
+        var top: UIViewController = self
+        while let presented = top.presentedViewController, !presented.isBeingDismissed {
+            top = presented
+        }
+        if let nav = top as? UINavigationController, let visible = nav.visibleViewController { return visible }
+        return top
+    }
+
+    private func shareLogFile(_ url: URL) {
+        let share = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+        share.popoverPresentationController?.sourceView = view
+        share.popoverPresentationController?.sourceRect = CGRect(x: view.bounds.midX, y: view.bounds.midY, width: 0, height: 0)
+        topMostController.present(share, animated: true)
+    }
+
+    private func exportLog() {
+        guard let url = saveLogFile() else {
+            alert(CWL("导出失败"), CWL("日志为空或无法写入 Documents 目录。"))
+            return
+        }
+        let name = url.lastPathComponent
+        let message = CWL("已保存为 {1}\n\n位置：『文件』App → 我的 iPhone → CarWithin", [name])
+        let sheet = UIAlertController(title: CWL("日志已保存"), message: message, preferredStyle: .alert)
+        sheet.addAction(UIAlertAction(title: CWL("好"), style: .default))
+        sheet.addAction(UIAlertAction(title: CWL("再分享/发送"), style: .default) { [weak self] _ in
+            self?.shareLogFile(url)
+        })
+        topMostController.present(sheet, animated: true)
+    }
+
     private func configureConnectionCard(_ card: UIStackView, title: String, symbol: String, color: UIColor,
                                          instructions: String, status: UILabel,
                                          onTitle: ((UILabel) -> Void)? = nil) -> UILabel {
@@ -1200,7 +1374,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         titleLabel.font = .preferredFont(forTextStyle: .headline)
         titleLabel.adjustsFontForContentSizeCategory = true
         onTitle?(titleLabel)
-    let header = UIStackView(arrangedSubviews: [icon, titleLabel])
+        let header = UIStackView(arrangedSubviews: [icon, titleLabel])
         header.spacing = 8; header.alignment = .center
         let help = UILabel()
         help.text = instructions
@@ -1368,7 +1542,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
             videoSurface.trailingAnchor.constraint(equalTo: container.trailingAnchor), videoSurface.topAnchor.constraint(equalTo: container.topAnchor),
             videoSurface.bottomAnchor.constraint(equalTo: container.bottomAnchor)]
         NSLayoutConstraint.activate(fullscreenConstraints)
-        // 不论 CarPlay 自己有没有画“车辆按钮”，都保留我们自己的退出按钮，避免困在全屏里。
+        // 不论 CarPlay 是否自己画了车辆按钮，都保留退出按钮，避免困在全屏里。
         addFullscreenExitButton(to: container)
         let twoFingerTap = UITapGestureRecognizer(target: self, action: #selector(hideFullscreen))
         twoFingerTap.numberOfTouchesRequired = 2
@@ -1689,6 +1863,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
             }
             guard saveSettings(config) else { return }
             if keepAliveSwitch.isOn { keepAlive.start() }
+            prepareOutputGate()
             view.endEditing(true); running = true; modeControl.isEnabled = false; setEditing(false)
             antBMS.recordingVehicleName = headUnitOutput.selectedTitle
             antBMS.setReceiving(true)
@@ -1720,9 +1895,9 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
             // Activate while foregrounded, before the virtual CarPlay route is selected.
             // Waiting until willResignActive can fail to acquire an audio session on CarAudio.
             if keepAliveSwitch.isOn { keepAlive.start() }
-            view.endEditing(true)
             prepareOutputGate()
-        running = true; modeControl.isEnabled = false; setEditing(false)
+            view.endEditing(true)
+            running = true; modeControl.isEnabled = false; setEditing(false)
             antBMS.recordingVehicleName = headUnitOutput.selectedTitle
             antBMS.setReceiving(true)
             startButton.setTitle(CWL("停止 CarPlay"), for: .normal)
@@ -1758,9 +1933,9 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         }
         guard saveSettings(config) else { return }
         sessionHasVehicleButton = CarPlayInfo.vehicleButtonSize(in: config) != nil
+        prepareOutputGate()
         if keepAliveSwitch.isOn { keepAlive.start() }
         view.endEditing(true)
-        prepareOutputGate()
         running = true; modeControl.isEnabled = false; setEditing(false)
         antBMS.recordingVehicleName = headUnitOutput.selectedTitle
         antBMS.setReceiving(true)
@@ -1842,6 +2017,8 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
     }
 
     private func stop() {
+        instrumentAutoStartGeneration = UUID()
+        instrumentAutoStartSuppressed = instrumentAutoStartEndpoint()?.key
         antBMS.setReceiving(false)
         localStartupID = nil
         networkStartupTask?.cancel()
@@ -1869,7 +2046,6 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         reportedScreen = nil; primaryViewer = nil; pendingRestartReason = nil
         pictureInPicture.stop(); keepAlive.stop(); skippedLocalVideo = false
         hideFullscreen(); videoActions.isHidden = true; controlBar.isHidden = true
-        awaitingOutputConnection = false; outputConnected = false
         displayedVideo = false; didRequestImmediatePiP = false
         videoSurface.reset(); inlineVideoContainer.isHidden = true
         receiver.onListening = nil; bluetooth.stop(); sameDevice.stop(); controlBrowser.stop(); receiver.stop()
@@ -1879,7 +2055,6 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         modeChanged()
         statusLabel.text = identity == nil ? CWL("需要导入 MFi 身份") : CWL("已停止")
         log(CWL("CarPlay 接收已停止"))
-        // 停止时自动存档一份日志，只保留最新，避免占空间。
         _ = saveLogFile()
     }
 
@@ -1903,7 +2078,58 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         startupHintTask = task
         DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: task)
     }
+    private func instrumentAutoStartEndpoint() -> (local: String, target: String, key: String)? {
+        guard outputMode.cfmoto, let local = ReceiverConfiguration.wifiIPv4Address() else { return nil }
+        let typed = cfmotoAddressField.text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard let target = typed.isEmpty ? PxcConnection.gateway(for: local) : typed else { return nil }
+        return (local, target, "\(outputMode.rawValue):\(local):\(target)")
+    }
+    @objc private func instrumentAutoStartChanged() {
+        UserDefaults.standard.set(instrumentAutoStartSwitch.isOn, forKey: "experimentalInstrumentAutoStart")
+        instrumentAutoStartGeneration = UUID()
+        instrumentAutoStartSuppressed = nil
+        ensureInstrumentAutoStartTimer()
+    }
+    private func ensureInstrumentAutoStartTimer() {
+        guard instrumentAutoStartSwitch.isOn, UIApplication.shared.applicationState == .active else {
+            instrumentAutoStartTimer?.invalidate(); instrumentAutoStartTimer = nil
+            return
+        }
+        guard instrumentAutoStartTimer == nil else { return }
+        instrumentAutoStartTimer = Timer.scheduledTimer(withTimeInterval: 3, repeats: true) { [weak self] _ in
+            self?.probeInstrumentAutoStart()
+        }
+    }
+    private func probeInstrumentAutoStart() {
+        guard instrumentAutoStartSwitch.isOn, !instrumentAutoStartProbing, !running, !waitingForNetwork,
+              modeControl.selectedSegmentIndex == 1, identity != nil,
+              UIApplication.shared.applicationState == .active, presentedViewController == nil,
+              let endpoint = instrumentAutoStartEndpoint(), endpoint.key != instrumentAutoStartSuppressed else { return }
+        // Validate all normal start requirements before sending an experimental discovery request.
+        if needsNetworkDetails {
+            guard !(ssidField.text ?? "").isEmpty, openNetworkSwitch.isOn || !(passwordField.text ?? "").isEmpty else { return }
+        }
+        guard (1...196).contains(Int(channelField.text ?? "") ?? 36) else { return }
+        instrumentAutoStartProbing = true
+        let generation = instrumentAutoStartGeneration
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let verified = PxcAutoStartProbe.verify(localIP: endpoint.local, targetIP: endpoint.target)
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.instrumentAutoStartProbing = false
+                guard verified, generation == self.instrumentAutoStartGeneration,
+                      self.instrumentAutoStartSwitch.isOn, !self.running, !self.waitingForNetwork,
+                      self.modeControl.selectedSegmentIndex == 1,
+                      UIApplication.shared.applicationState == .active, self.presentedViewController == nil,
+                      self.instrumentAutoStartEndpoint()?.key == endpoint.key else { return }
+                self.instrumentAutoStartSuppressed = endpoint.key
+                self.log("实验自动启动：已核对春风 PXC 探测应答，启动本机 CarPlay")
+                self.toggleReceiver()
+            }
+        }
+    }
     @objc private func modeChanged() {
+        ensureInstrumentAutoStartTimer()
         if UIDevice.current.userInterfaceIdiom == .phone { modeControl.selectedSegmentIndex = 1 }
         UserDefaults.standard.set(modeControl.selectedSegmentIndex, forKey: "connectionMode")
         let local = modeControl.selectedSegmentIndex == 1
@@ -1978,7 +2204,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
             skippedLocalVideo = true
             pictureInPicture.stop()
             videoSurface.suspendForExternalOutput()
-            log("极核仪表继续输出，手机预览已暂停；直传模式不需要手机端视频解码和编码")
+            log("极核仪表继续输出，手机预览已暂停；启用 BMS 卡片时使用兼容转码")
             return
         }
         pictureInPicture.awaitAutomaticStart()
@@ -2114,6 +2340,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         skippedLocalVideo = false
     }
     @objc private func foregrounded() {
+        ensureInstrumentAutoStartTimer()
         refreshNetworkAddresses()
         guard running else {
             if !waitingForNetwork { modeChanged() }
@@ -2123,6 +2350,8 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         DispatchQueue.main.async { [weak self] in self?.applyAppearance() }
     }
     @objc private func backgrounded() {
+        instrumentAutoStartGeneration = UUID()
+        instrumentAutoStartTimer?.invalidate(); instrumentAutoStartTimer = nil
         updateCheckTask?.cancel()
         receiverBrowser.stop()
         guard running else { return }
@@ -2137,76 +2366,6 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         }
     }
     @objc private func copyLog() { UIPasteboard.general.string = lines.joined(separator: "\n") }
-
-    /// 带环境头的完整日志文本，用于导出或自动存档。
-    private var logExportText: String {
-        let info = Bundle.main.infoDictionary ?? [:]
-        let version = info["CFBundleShortVersionString"] as? String ?? "-"
-        let build = info["CFBundleVersion"] as? String ?? "-"
-        let header = [
-            "CarWithin 日志",
-            "导出时间：\(DateFormatter.localizedString(from: Date(), dateStyle: .medium, timeStyle: .medium))",
-            "版本：\(version)（\(build)）",
-            "车型：\(outputMode.title)",
-            "系统：\(UIDevice.current.systemName) \(UIDevice.current.systemVersion)",
-        ]
-        return header.joined(separator: "\n") + "\n\n" + lines.joined(separator: "\n")
-    }
-
-    /// 写入 Documents，只保留最新一份（先删同前缀的旧文件）。
-    @discardableResult
-    private func saveLogFile() -> URL? {
-        guard !lines.isEmpty else { return nil }
-        let manager = FileManager.default
-        guard let documents = manager.urls(for: .documentDirectory, in: .userDomainMask).first else { return nil }
-        if let existing = try? manager.contentsOfDirectory(at: documents, includingPropertiesForKeys: nil) {
-            for url in existing where url.lastPathComponent.hasPrefix("CarWithin-日志") && url.pathExtension == "txt" {
-                try? manager.removeItem(at: url)
-            }
-        }
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyyMMdd-HHmmss"
-        let url = documents.appendingPathComponent("CarWithin-日志-\(formatter.string(from: Date())).txt")
-        do {
-            try logExportText.write(to: url, atomically: true, encoding: .utf8)
-            return url
-        } catch {
-            log(CWL("日志保存失败：{1}", [String(describing: error.localizedDescription)]))
-            return nil
-        }
-    }
-
-    private func exportLog() {
-        guard let url = saveLogFile() else {
-            alert(CWL("导出失败"), CWL("日志为空或无法写入 Documents 目录。"))
-            return
-        }
-        let name = url.lastPathComponent
-        let message = CWL("已保存为 {1}\n\n位置：\"文件\"App → 我的 iPhone → CarWithin", [name])
-        let sheet = UIAlertController(title: CWL("日志已保存"), message: message, preferredStyle: .alert)
-        sheet.addAction(UIAlertAction(title: CWL("好"), style: .default))
-        sheet.addAction(UIAlertAction(title: CWL("再分享/发送"), style: .default) { [weak self] _ in
-            self?.shareLogFile(url)
-        })
-        topMostController.present(sheet, animated: true)
-    }
-
-    /// 设置页是模态呈现的，分享面板必须从最上层控制器弹出，否则会被吞掉。
-    private var topMostController: UIViewController {
-        var top: UIViewController = self
-        while let presented = top.presentedViewController, !presented.isBeingDismissed {
-            top = presented
-        }
-        if let nav = top as? UINavigationController, let visible = nav.visibleViewController { return visible }
-        return top
-    }
-
-    private func shareLogFile(_ url: URL) {
-        let share = UIActivityViewController(activityItems: [url], applicationActivities: nil)
-        share.popoverPresentationController?.sourceView = view
-        share.popoverPresentationController?.sourceRect = CGRect(x: view.bounds.midX, y: view.bounds.midY, width: 0, height: 0)
-        topMostController.present(share, animated: true)
-    }
     private func log(_ message: String) {
         let timestamp = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
         lines.append("\(timestamp)  \(message)"); if lines.count > 5000 { lines.removeFirst(lines.count - 5000) }
@@ -2224,6 +2383,8 @@ extension ReceiverViewController {
     /// Initial values and change handlers for every setting control. The controls live on the
     /// settings pages; the rest of this controller reads them directly.
     fileprivate func configureSettingsControls() {
+        instrumentAutoStartSwitch.isOn = UserDefaults.standard.bool(forKey: "experimentalInstrumentAutoStart")
+        instrumentAutoStartSwitch.addTarget(self, action: #selector(instrumentAutoStartChanged), for: .valueChanged)
         let defaults = UserDefaults.standard
         if !defaults.bool(forKey: "didApplyLeftHandDefaultV2") {
             defaults.set(false, forKey: "rightHandDrive"); defaults.set(true, forKey: "didApplyLeftHandDefaultV2")
@@ -2395,8 +2556,8 @@ extension ReceiverViewController {
         reloadVisibleSettings()
     }
     @objc private func headUnitOutputChanged() {
-        saveHeadUnitOutput()
         updateConnectionCardTitle()
+        saveHeadUnitOutput()
         refreshVideoOutputSummary()
         updateVideoAspect()
         reloadVisibleSettings()
@@ -2996,103 +3157,6 @@ extension ReceiverViewController {
 
     // MARK: 输出方式
 
-    // MARK: 车型选择（品牌 → 车型 两级菜单）
-
-    /// 车型大类：一级菜单按品牌分组。
-    private enum HeadUnitBrand: Int, CaseIterable {
-        case ninebot, zeeho, cfmoto, tailing, other
-
-        var title: String {
-            switch self {
-            case .ninebot: return CWL("九号")
-            case .zeeho: return CWL("极核")
-            case .cfmoto: return CWL("春风")
-            case .tailing: return CWL("台铃")
-            case .other: return CWL("其他（待加入）")
-            }
-        }
-        var symbol: String {
-            switch self {
-            case .ninebot, .zeeho: return "scooter"
-            case .cfmoto: return "car.fill"
-            case .tailing: return "car"
-            case .other: return "globe"
-            }
-        }
-        var color: UIColor {
-            switch self {
-            case .ninebot: return .systemGreen
-            case .zeeho: return .systemBlue
-            case .cfmoto: return .systemTeal
-            case .tailing: return .systemOrange
-            case .other: return .systemGray
-            }
-        }
-    }
-
-    private func brand(of mode: HeadUnitOutput) -> HeadUnitBrand {
-        switch mode {
-        case .ninebot, .ninebotSeven, .ninebot43: return .ninebot
-        case .zeeho, .zeehoAE4i, .zeehoSEPlus, .zeehoAE2: return .zeeho
-        case .cfmoto5, .cfmoto62: return .cfmoto
-        case .tailing: return .tailing
-        case .browser, .carLife, .airPlay: return .other
-        }
-    }
-
-    /// 输出设置页顶部的「车型选择」入口。
-    private func modelChoiceSection() -> SettingsSection {
-        SettingsSection(CWL("车型"), [
-            .page(CWL("车型选择"), icon: ("car.fill", .systemIndigo), detail: { [unowned self] in
-                self.outputMode.title
-            }) { [unowned self] in self.modelCategoryPage() }
-        ])
-    }
-
-    private func modelCategoryPage() -> SettingsPageController {
-        page(CWL("车型选择")) { [unowned self] in
-            // 浏览器 / CarLife / AirPlay 不属于任何车机品牌，直接放在第一级。
-            let direct = HeadUnitOutput.menuOrder.filter { self.brand(of: $0) == .other }.map { mode -> SettingsRow in
-                var row = SettingsRow.action(mode.title) { [unowned self] in self.choose(mode) }
-                row.checked = { [unowned self] in self.outputMode == mode }
-                return row
-            }
-            let brands = HeadUnitBrand.allCases.map { brand in
-                SettingsRow.page(brand.title, icon: (brand.symbol, brand.color), detail: { [unowned self] in
-                    guard brand != .other, self.brand(of: self.outputMode) == brand else { return nil }
-                    return self.outputMode.title
-                }) { [unowned self] in self.modelListPage(brand) }
-            }
-            return [
-                SettingsSection(CWL("直接输出"), direct),
-                SettingsSection(CWL("品牌"), brands)
-            ]
-        }
-    }
-
-    private func modelListPage(_ brand: HeadUnitBrand) -> SettingsPageController {
-        page(brand.title) { [unowned self] in
-            let rows = HeadUnitOutput.menuOrder
-                .filter { brand != .other && self.brand(of: $0) == brand }
-                .map { mode -> SettingsRow in
-                    var row = SettingsRow.action(mode.title) { [unowned self] in self.choose(mode) }
-                    row.checked = { [unowned self] in self.outputMode == mode }
-                    return row
-                }
-            let footer = brand == .other
-                ? CWL("暂无车型，后续加入后会出现在这里。")
-                : CWL("选择后立即生效，并自动返回。")
-            return [SettingsSection(nil, footer: footer, rows)]
-        }
-    }
-
-    private func choose(_ mode: HeadUnitOutput) {
-        guard let index = HeadUnitOutput.menuOrder.firstIndex(of: mode) else { return }
-        headUnitOutput.selectedSegmentIndex = index
-        headUnitOutputChanged()
-        settingsNavigation?.popToRootViewController(animated: true)
-    }
-
     fileprivate func headUnitPage() -> SettingsPageController {
         page(CWL("输出设置")) { [unowned self] in
             [self.modelChoiceSection()] + self.headUnitSections()
@@ -3128,7 +3192,7 @@ extension ReceiverViewController {
                     rows.append(.control("CarPlay 画面", icon: ("aspectratio", .systemGreen), zeehoSEPlusCanvasControl))
                     rows.append(.control("视频发送方式", icon: ("film", .systemIndigo), zeehoSEPlusVideoModeControl))
                     rows.append(.info("当前发送方式", selectedZeehoVideoMode.title))
-                    rows.append(.info(CWL("使用说明"), "全宽适合本机 1600×770 仪表。直传兼容性待实测，黑屏时改回兼容转码。25 FPS 自动使用转码。锁屏时暂停手机预览，后台保持需开启。"))
+                    rows.append(.info(CWL("使用说明"), "全宽适合本机 1600×770 仪表。直传兼容性待实测，黑屏时改回兼容转码。25 FPS 或启用 BMS 卡片时自动使用转码。锁屏时暂停手机预览，后台保持需开启。"))
                 }
                 if usesAutomaticZeehoAddress {
                     rows.append(.info("仪表 IP", "连接时自动匹配，结果见日志"))
@@ -3457,7 +3521,7 @@ extension ReceiverViewController {
         let controller = page(CWL("日志")) { [unowned self] in
             [
                 SettingsSection(footer: CWL("最近 5000 条，不含 Wi-Fi 密码和 MFi 私钥。"), [.view(logView)]),
-                SettingsSection(footer: CWL("每次停止 CarPlay 时会自动保存一份到 App 的 Documents 目录，只保留最新一份。\n位置：『文件』App → 我的 iPhone → CarWithin，也可以点上面的『导出日志 TXT』另存或分享。"), [
+                SettingsSection(footer: CWL("每次停止 CarPlay 时会自动保存一份到 App 的 Documents 目录，只保留最新一份。位置：『文件』App → 我的 iPhone → CarWithin。"), [
                     .action(CWL("复制日志"), icon: ("doc.on.doc.fill", .systemBlue)) { [unowned self] in
                         self.copyLog(); self.alert(CWL("已复制"), CWL("日志已复制到剪贴板。"))
                     },
@@ -3481,6 +3545,9 @@ extension ReceiverViewController {
                 self.testSameDeviceTransport()
             }
         ])]
+        sections.append(SettingsSection(CWL("仪表自动启动（实验）"), footer: CWL("默认关闭。当前仅支持春风 5/6.2 寸：App 在前台、未运行且不在设置页面时，核对 PXC 投屏探测应答后启动。需先加入仪表 Wi-Fi 并填好本机 CarPlay 网络设置；不是后台唤醒。手动停止后，当前地址不再自动启动，可关闭再开启此开关重试。"), [
+            .control(CWL("检测到春风仪表自动启动"), icon: ("bolt.car.fill", .systemOrange), instrumentAutoStartSwitch)
+        ]))
         if UIDevice.current.userInterfaceIdiom == .pad {
             sections.append(SettingsSection(CWL("iPad 模式"), footer: CWL("接收其他 iPhone 的 CarPlay，或把这台设备的 CarPlay 投送到另一台 iPad。"), [.view(modeControl)]))
             if modeControl.selectedSegmentIndex == 0 {
@@ -3515,9 +3582,7 @@ extension ReceiverViewController {
         page(CWL("关于")) { [unowned self] in
             [
                 SettingsSection([.view(self.aboutIdentityCard())]),
-                SettingsSection(footer: "Copyright © 2026 xmz28", self.aboutLinks() + [
-                    .info("极核 AE4i Pro+ 适配", "飞扬大大 · 大肥鱼（AI 助手）")
-                ])
+                SettingsSection(footer: "Copyright © 2026 xmz28", self.aboutLinks() + [.info(CWL("极核 AE4i Pro+ 适配"), CWL("飞扬大大 · 大肥鱼（AI 助手）"))])
             ]
         }
     }

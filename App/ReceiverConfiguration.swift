@@ -185,7 +185,7 @@ struct ReceiverConfiguration {
             guard inet_pton(AF_INET, tailingAddress, &target) == 1, tailingAddress != address,
                   !tailingAddress.hasPrefix("127."), !tailingAddress.hasPrefix("0."),
                   UInt32(bigEndian: target.s_addr) < 0xe0000000 else {
-                throw ConfigurationError(CWL("请输入有效的仪表仪表 IPv4 地址，与本机 IP 不同。"))
+                throw ConfigurationError(CWL("请输入有效的台铃仪表 IPv4 地址，与本机 IP 不同。"))
             }
         }
         if let carLinkRelayAddress {

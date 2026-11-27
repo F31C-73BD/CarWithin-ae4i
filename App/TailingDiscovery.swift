@@ -85,6 +85,8 @@ enum TailingDiscovery {
         let addresses = candidates(localIP: localIP, netmask: mask,
                                    previousIP: UserDefaults.standard.string(forKey: savedAddressKey))
         // Unicast TCP avoids relying on a multicast entitlement for discovery.
+        // 仪表刚打开投屏、或热点刚连上时可能还没开始应答，多扫几轮（每轮约 0.5-1 秒，合计约 3 秒）。
+        for round in 1...4 {
         for start in stride(from: 0, to: addresses.count, by: 16) {
             try check()
             let results = Connections()
@@ -114,6 +116,8 @@ enum TailingDiscovery {
                     return selected
                 }
             }
+        }
+        if round < 4 { try check(); Thread.sleep(forTimeInterval: 0.7) }
         }
         throw TailingError.timeout("自动查找未发现仪表，请确认已连接仪表 Wi-Fi 并开启 MotoPlay 投屏，或关闭自动查找后填写仪表 IP")
     }

@@ -59,6 +59,8 @@ final class NativeReceiver {
     private let zeeho = ZeehoOutput()
     private let zeeho62 = Zeeho62Legacy.ZeehoOutput()
     var onZeehoState: ((String) -> Void)?
+    /// Main thread: 极核投屏的实测帧率与生效码率（约每 5 秒一次）。
+    var onZeehoStats: ((Double, Int) -> Void)?
     private let ninebot = NinebotOutput()
     var onNinebotState: ((String) -> Void)?
     private let cfmoto5 = CfmotoOutput(name: "cfmoto5")

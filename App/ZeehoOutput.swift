@@ -480,7 +480,7 @@ final class ZeehoOutput {
                 return "仪表分辨率与当前车型不匹配，请在「输出设置 → 车型选择」里换成对应车型。"
             }
             if raw.contains("会话已关闭") {
-                return "仪表主动断开了投屏（可能退出了投屏页），请在仪表上重新打开投屏。"
+                return "仪表断开了投屏，正在自动重连…（若连续三次失败，请点「停止 CarPlay」再启动）"
             }
             if raw.contains("连接被重置") || raw.contains("Connection reset") {
                 return "连接被仪表重置，通常是仪表退出投屏或 Wi-Fi 抖动，可重新启动一次。"

@@ -421,8 +421,8 @@ final class TailingConnection: @unchecked Sendable {
             let response: UInt16
             // 控制消息时间线：每条命令首次出现记一条，0x103b0（通道注册）每次完整打印，
             // 方便对照“仪表什么时候断开、最后一条消息是什么”。
-            if loggedCommands.insert(request.command).inserted {
-                log(String(format: "[控制] 0x%08x %d 字节（首次）", request.command, request.payload.count))
+            if loggedCommands.insert(UInt32(request.command)).inserted {
+                log(String(format: "[控制] 0x%08x %d 字节（首次）", UInt32(request.command), request.payload.count))
             }
             if request.command == 0x103b0 {
                 logInput(String(format: "通道注册 0x%08x", request.command), request.payload)

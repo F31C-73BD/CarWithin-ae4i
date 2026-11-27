@@ -135,6 +135,9 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
     var zeehoCardTitleLabel: UILabel?
     /// 外部输出（极核/春风/九号/台铃）必须先连上仪表，App 内才显示预览。
     var awaitingOutputConnection = false
+    /// 仪表断开后的自动重连计数（每次成功投屏清零，最多连续 3 次）。
+    var autoReconnectAttempts = 0
+    var autoReconnectScheduled = false
     var outputConnected = false
     var waitsForExternalOutput: Bool {
         outputMode != .browser && outputMode != .carLife && outputMode != .airPlay
@@ -200,6 +203,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
     }
     private func updateZeehoStatus(_ message: String) {
         if message.contains(CWL("正在投屏")) { markOutputConnected() }
+        if message.contains(CWL("极核连接失败")) { scheduleAutoReconnect() }
         if !message.hasPrefix(CWL("正在投屏")) { zeehoStatsLabel.isHidden = true }
         zeehoStatus.text = message
         zeehoCardStatus.text = message
@@ -1263,6 +1267,32 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
     }
 
     /// 从日志里识别仪表型号与分辨率，并给出选择提示。
+    /// 仪表断开后自动“停止 + 重新启动”，省掉手动两步；连续 5 次失败就收手并给提示。
+    private func scheduleAutoReconnect() {
+        guard running, outputMode.zeehoProfile != nil, !autoReconnectScheduled else { return }
+        guard autoReconnectAttempts < 5 else {
+            autoReconnectScheduled = false
+            let text = CWL("已连续 5 次自动重连失败，先停在这里。请检查：手机是否还连着仪表 Wi-Fi、仪表是否已打开投屏；确认后点「启动本机 CarPlay」即可。")
+            log(text)
+            updateZeehoStatus(text)
+            return
+        }
+        autoReconnectScheduled = true
+        autoReconnectAttempts += 1
+        let attempt = autoReconnectAttempts
+        log(CWL("仪表连接中断，1.5 秒后自动重连（第 {1} 次）", [String(attempt)]))
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+            guard let self else { return }
+            self.autoReconnectScheduled = false
+            guard self.running else { return }
+            self.stop()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                guard let self, !self.running else { return }
+                self.toggleReceiver()
+            }
+        }
+    }
+
     private func detectMeterInfo(_ message: String) {
         var changed = false
         if let range = message.range(of: "HUName=\"") {
@@ -1310,9 +1340,11 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
     private func prepareOutputGate() {
         awaitingOutputConnection = waitsForExternalOutput
         outputConnected = false
+        autoReconnectAttempts = 0
     }
 
     private func markOutputConnected() {
+        autoReconnectAttempts = 0
         awaitingOutputConnection = false
         outputConnected = true
         refreshInlinePreview()

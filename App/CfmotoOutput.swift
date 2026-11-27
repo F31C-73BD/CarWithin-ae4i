@@ -116,7 +116,8 @@ final class CfmotoOutput {
         private var status = ""
 
         init(queue: DispatchQueue, localAddress: String, targetAddress: String, phone: TailingPhoneInfo,
-             profile: CfmotoProfile, onState: @escaping (String) -> Void, onLog: @escaping (String) -> Void,
+             profile: CfmotoProfile, bitrateOverride: Int?, encodeProfile: ZeehoEncodeProfile,
+             onState: @escaping (String) -> Void, onLog: @escaping (String) -> Void,
              requestKeyframe: @escaping () -> Void, onGiveUp: (() -> Void)? = nil) {
             self.queue = queue
             self.localAddress = localAddress

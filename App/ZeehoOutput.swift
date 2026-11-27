@@ -417,12 +417,19 @@ final class ZeehoOutput {
             } catch H264EncoderError.frameDropped {
                 return nil
             } catch {
+                // -12903 = VideoToolbox 会话失效（多在切前后台时出现）：
+                // 立刻丢掉旧会话，下一次编码即重建，并马上向上游请求关键帧，恢复通常 <300ms。
+                let nsError = error as NSError
                 encoder?.invalidate()
                 encoder = nil
                 lastKeyframe = -.infinity
                 lock.withLock { encoded = nil }
-                // 下一次编码会重建 VideoToolbox 会话，并强制送 IDR，恢复通常 <300ms。
-                logCodecFailure(CWL("编码"), error)
+                if nsError.code == -12903 {
+                    logCodecFailure(CWL("编码器会话失效，已重建并请求关键帧"), error)
+                    requestKeyframe()
+                } else {
+                    logCodecFailure(CWL("编码"), error)
+                }
                 return nil
             }
         }

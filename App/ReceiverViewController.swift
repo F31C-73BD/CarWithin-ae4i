@@ -1359,6 +1359,22 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
                    [local, target, ssid, portText, raw])
     }
 
+    /// 按仪表上报的分辨率自动匹配极核车型（仅在未投屏时切换，避免打断会话）。
+    private func autoSelectModel(for sizeText: String) {
+        guard !running, outputMode.zeehoProfile != nil else { return }
+        let target: HeadUnitOutput?
+        switch sizeText {
+        case "2048×968": target = .zeehoAE4i
+        case "1024×480", "1024×488": target = .zeehoAE2
+        default: target = nil
+        }
+        guard let target, target != outputMode else { return }
+        guard let index = HeadUnitOutput.menuOrder.firstIndex(of: target) else { return }
+        headUnitOutput.selectedSegmentIndex = index
+        headUnitOutputChanged()
+        log(CWL("已按仪表上报 {1} 自动切换到「{2}」", [sizeText, target.title]))
+    }
+
     /// 从日志里识别仪表型号与分辨率，并给出选择提示。
     /// 仪表断开后自动“停止 + 重新启动”，省掉手动两步；连续 5 次失败就收手并给提示。
     private func scheduleAutoReconnect() {
@@ -1427,6 +1443,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
                 if text != meterSizeText {
                     meterSizeText = text
                     changed = true
+                    autoSelectModel(for: text)
                     if text == "2048×968", outputMode.zeehoProfile != nil, outputMode != .zeehoAE4i, !running {
                         log(CWL("检测到仪表上报 2048×968，建议在「输出设置 → 车型选择」里选择「极核 AE4i Pro+ 6.2 寸」。"))
                     }

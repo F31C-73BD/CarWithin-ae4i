@@ -34,6 +34,11 @@ struct ReceiverConfiguration {
     /// 新一代 6.2 寸（AE4i Pro+）可单独调的码率与 H.264 档位。
     var zeehoBitrate: ZeehoBitrate = .auto
     var zeehoEncodeProfile: ZeehoEncodeProfile = .baseline
+    /// 春风、极核 SE+ 也支持码率与编码档位（帧率仍由仪表协议决定）。
+    var cfmotoBitrate: ZeehoBitrate = .auto
+    var cfmotoEncodeProfile: ZeehoEncodeProfile = .baseline
+    var zeehoSEPlusBitrate: ZeehoBitrate = .auto
+    var zeehoSEPlusEncodeProfile: ZeehoEncodeProfile = .baseline
     /// 春风仪表（MotoPlay / PXC）：手机监听 10920/10921/10922，向仪表 10930 探测。
     /// 留空表示自动取本机所在网段的网关（仪表热点一般是 .1）。
     var cfmotoAddress: String?

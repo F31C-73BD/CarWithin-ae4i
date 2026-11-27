@@ -51,11 +51,13 @@ final class CfmotoOutput {
     deinit { stop() }
 
     func start(localAddress: String, targetAddress: String, phone: TailingPhoneInfo, profile: CfmotoProfile,
+               bitrateOverride: Int? = nil, encodeProfile: ZeehoEncodeProfile = .baseline,
                onState: @escaping (String) -> Void, onLog: @escaping (String) -> Void,
                requestKeyframe: @escaping () -> Void, onGiveUp: (() -> Void)? = nil) {
         stop()
         let next = Session(queue: queue, localAddress: localAddress, targetAddress: targetAddress,
                            phone: phone, profile: profile,
+                           bitrateOverride: bitrateOverride, encodeProfile: encodeProfile,
                            onState: onState, onLog: onLog, requestKeyframe: requestKeyframe, onGiveUp: onGiveUp)
         session = next
         next.start()
@@ -96,6 +98,8 @@ final class CfmotoOutput {
         private var encodeHeight: Int
         /// 极核逻辑：帧率、码率不写死，跟仪表协商结果走。
         /// 协商前用 profile 的默认值（5 寸 25 FPS / 2.5 Mbit/s），协商后用仪表报的 fps 换算。
+        private let bitrateOverride: Int?
+        private let encodeProfile: ZeehoEncodeProfile
         private var effectiveFps: Int
         private var effectiveBitrate: Int
         private var connection: PxcConnection?
@@ -121,6 +125,8 @@ final class CfmotoOutput {
             self.profile = profile
             self.encodeWidth = profile.pxcWidth
             self.encodeHeight = profile.pxcHeight
+            self.bitrateOverride = bitrateOverride
+            self.encodeProfile = encodeProfile
             self.effectiveFps = profile.fps
             self.effectiveBitrate = profile.bitrate
             self.onState = onState
@@ -150,7 +156,7 @@ final class CfmotoOutput {
                             // 极核逻辑：用仪表报的 fps，码率按 2.5 Mbit/s @25 FPS 线性换算。
                             // 例：仪表报 25 → 2.5 Mbit/s，报 30 → 3.0 Mbit/s。
                             effectiveFps = profile == .fiveInch ? size.fps : profile.fps
-                            effectiveBitrate = profile == .fiveInch ? CfmotoProfile.bitrate(for: size.fps) : profile.bitrate
+                            effectiveBitrate = bitrateOverride ?? (profile == .fiveInch ? CfmotoProfile.bitrate(for: size.fps) : profile.bitrate)
                             encoder?.invalidate()
                             encoder = nil
                             lastKeyframe = -.infinity
@@ -351,7 +357,11 @@ final class CfmotoOutput {
                     if encoder == nil {
                         guard now - lastCodecFailure >= 0.5 else { return nil }
                         encoder = try H264Encoder(width: encodeWidth, height: encodeHeight,
-                                                  fps: effectiveFps, bitrate: effectiveBitrate) { [weak self] result in
+                                                  fps: effectiveFps, bitrate: effectiveBitrate,
+                                                  prioritizeQuality: encodeProfile == .main,
+                                                  profileLevel: encodeProfile == .main
+                                                      ? kVTProfileLevel_H264_Main_AutoLevel
+                                                      : kVTProfileLevel_H264_Baseline_AutoLevel) { [weak self] result in
                             guard let self else { return }
                             self.lock.withLock { self.encoded = result }
                         }

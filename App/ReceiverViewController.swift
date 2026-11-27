@@ -155,6 +155,11 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
     private let zeehoAE4iFrameRateControl = ChoiceMenu(items: ZeehoFrameRate.allCases.map(\.title))
     private let zeehoAE4iBitrateControl = ChoiceMenu(items: ZeehoBitrate.allCases.map(\.title))
     private let zeehoAE4iEncodeProfileControl = ChoiceMenu(items: ZeehoEncodeProfile.allCases.map(\.title))
+    /// 春风、极核 SE+：只加码率与编码档位（帧率仍由仪表协议决定）。
+    private let cfmotoBitrateControl = ChoiceMenu(items: ZeehoBitrate.allCases.map(\.title))
+    private let cfmotoEncodeProfileControl = ChoiceMenu(items: ZeehoEncodeProfile.allCases.map(\.title))
+    private let zeehoSEPlusBitrateControl = ChoiceMenu(items: ZeehoBitrate.allCases.map(\.title))
+    private let zeehoSEPlusEncodeProfileControl = ChoiceMenu(items: ZeehoEncodeProfile.allCases.map(\.title))
     private let audioRoutePicker: AVRoutePickerView = {
         let picker = AVRoutePickerView()
         picker.prioritizesVideoDevices = false
@@ -174,6 +179,9 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         AVAudioSession.sharedInstance().currentRoute.outputs.map { "\($0.portName)（\($0.portType.rawValue)）" }.joined(separator: "、")
     }
     private var selectedZeehoFrameRate: ZeehoFrameRate {
+        if outputMode == .zeeho {
+            rows.append(.info(CWL("帧率与编码"), CWL("该型号（旧协议栈）固定 25 FPS / Baseline")))
+        }
         if outputMode == .zeehoAE4i { return selectedZeehoAE4iFrameRate }
         guard outputMode == .zeehoSEPlus else { return .fps25 }
         let rates = ZeehoFrameRate.allCases
@@ -193,6 +201,26 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
     private var selectedZeehoAE4iEncodeProfile: ZeehoEncodeProfile {
         let options = ZeehoEncodeProfile.allCases
         let index = max(0, min(zeehoAE4iEncodeProfileControl.selectedSegmentIndex, options.count - 1))
+        return options[index]
+    }
+    private var selectedCfmotoBitrate: ZeehoBitrate {
+        let options = ZeehoBitrate.allCases
+        let index = max(0, min(cfmotoBitrateControl.selectedSegmentIndex, options.count - 1))
+        return options[index]
+    }
+    private var selectedCfmotoEncodeProfile: ZeehoEncodeProfile {
+        let options = ZeehoEncodeProfile.allCases
+        let index = max(0, min(cfmotoEncodeProfileControl.selectedSegmentIndex, options.count - 1))
+        return options[index]
+    }
+    private var selectedZeehoSEPlusBitrate: ZeehoBitrate {
+        let options = ZeehoBitrate.allCases
+        let index = max(0, min(zeehoSEPlusBitrateControl.selectedSegmentIndex, options.count - 1))
+        return options[index]
+    }
+    private var selectedZeehoSEPlusEncodeProfile: ZeehoEncodeProfile {
+        let options = ZeehoEncodeProfile.allCases
+        let index = max(0, min(zeehoSEPlusEncodeProfileControl.selectedSegmentIndex, options.count - 1))
         return options[index]
     }
     private var usesAutomaticZeehoAddress: Bool {
@@ -1585,8 +1613,18 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
             config.zeehoProfile = profile
             config.zeehoFrameRate = selectedZeehoFrameRate
             config.zeehoVideoMode = selectedZeehoVideoMode
-            config.zeehoBitrate = outputMode == .zeehoAE4i ? selectedZeehoAE4iBitrate : .auto
-            config.zeehoEncodeProfile = outputMode == .zeehoAE4i ? selectedZeehoAE4iEncodeProfile : .baseline
+            if outputMode == .zeehoAE4i {
+                config.zeehoBitrate = selectedZeehoAE4iBitrate
+                config.zeehoEncodeProfile = selectedZeehoAE4iEncodeProfile
+            } else if outputMode == .zeehoSEPlus {
+                config.zeehoBitrate = selectedZeehoSEPlusBitrate
+                config.zeehoEncodeProfile = selectedZeehoSEPlusEncodeProfile
+            } else {
+                config.zeehoBitrate = .auto
+                config.zeehoEncodeProfile = .baseline
+            }
+            config.cfmotoBitrate = selectedCfmotoBitrate
+            config.cfmotoEncodeProfile = selectedCfmotoEncodeProfile
             config.zeehoAutomaticAddress = usesAutomaticZeehoAddress
             config.zeehoAddress = (activeZeehoAddressField.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         }
@@ -2312,6 +2350,10 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         zeeho62AutomaticSwitch.isEnabled = value
         zeehoSEPlusFrameRateControl.isEnabled = value
         zeehoSEPlusCanvasControl.isEnabled = value
+        cfmotoBitrateControl.isEnabled = value
+        cfmotoEncodeProfileControl.isEnabled = value
+        zeehoSEPlusBitrateControl.isEnabled = value
+        zeehoSEPlusEncodeProfileControl.isEnabled = value
         zeehoSEPlusVideoModeControl.isEnabled = value
         motorcycleAddressField.isEnabled = value
         eryaVideoPortField.isEnabled = value; eryaControlPortField.isEnabled = value
@@ -2605,6 +2647,18 @@ extension ReceiverViewController {
         zeehoSEPlusFrameRateControl.addTarget(self, action: #selector(zeehoFrameRateChanged), for: .valueChanged)
         zeehoSEPlusCanvasControl.selectedSegmentIndex = (ZeehoCanvas(rawValue: defaults.integer(forKey: "zeehoSEPlusCanvas")) ?? .wide).rawValue
         zeehoSEPlusCanvasControl.addTarget(self, action: #selector(zeehoVideoSettingsChanged), for: .valueChanged)
+        let savedSEPlusBitrate = ZeehoBitrate(rawValue: defaults.integer(forKey: "zeehoSEPlusBitrate")) ?? .auto
+        zeehoSEPlusBitrateControl.selectedSegmentIndex = ZeehoBitrate.allCases.firstIndex(of: savedSEPlusBitrate) ?? 0
+        zeehoSEPlusBitrateControl.addTarget(self, action: #selector(zeehoVideoSettingsChanged), for: .valueChanged)
+        let savedSEPlusProfile = ZeehoEncodeProfile(rawValue: defaults.integer(forKey: "zeehoSEPlusEncodeProfile")) ?? .baseline
+        zeehoSEPlusEncodeProfileControl.selectedSegmentIndex = ZeehoEncodeProfile.allCases.firstIndex(of: savedSEPlusProfile) ?? 0
+        zeehoSEPlusEncodeProfileControl.addTarget(self, action: #selector(zeehoVideoSettingsChanged), for: .valueChanged)
+        let savedCfmotoBitrate = ZeehoBitrate(rawValue: defaults.integer(forKey: "cfmotoBitrate")) ?? .auto
+        cfmotoBitrateControl.selectedSegmentIndex = ZeehoBitrate.allCases.firstIndex(of: savedCfmotoBitrate) ?? 0
+        cfmotoBitrateControl.addTarget(self, action: #selector(cfmotoEncodingChanged), for: .valueChanged)
+        let savedCfmotoProfile = ZeehoEncodeProfile(rawValue: defaults.integer(forKey: "cfmotoEncodeProfile")) ?? .baseline
+        cfmotoEncodeProfileControl.selectedSegmentIndex = ZeehoEncodeProfile.allCases.firstIndex(of: savedCfmotoProfile) ?? 0
+        cfmotoEncodeProfileControl.addTarget(self, action: #selector(cfmotoEncodingChanged), for: .valueChanged)
         zeehoSEPlusVideoModeControl.selectedSegmentIndex = (ZeehoVideoMode(rawValue: defaults.integer(forKey: "zeehoSEPlusVideoMode")) ?? .transcode).rawValue
         let savedAE4iFrameRate = ZeehoFrameRate(rawValue: defaults.integer(forKey: "zeehoAE4iFrameRate")) ?? .fps25
         zeehoAE4iFrameRateControl.selectedSegmentIndex = ZeehoFrameRate.allCases.firstIndex(of: savedAE4iFrameRate) ?? 0
@@ -2687,9 +2741,19 @@ extension ReceiverViewController {
     @objc private func zeehoFrameRateChanged() {
         guard !running else { return }
         UserDefaults.standard.set(selectedZeehoFrameRate.rawValue, forKey: "zeehoSEPlusFrameRate")
+        UserDefaults.standard.set(selectedZeehoSEPlusBitrate.rawValue, forKey: "zeehoSEPlusBitrate")
+        UserDefaults.standard.set(selectedZeehoSEPlusEncodeProfile.rawValue, forKey: "zeehoSEPlusEncodeProfile")
         refreshVideoOutputSummary()
         reloadVisibleSettings()
     }
+    @objc private func cfmotoEncodingChanged() {
+        guard !running else { return }
+        UserDefaults.standard.set(selectedCfmotoBitrate.rawValue, forKey: "cfmotoBitrate")
+        UserDefaults.standard.set(selectedCfmotoEncodeProfile.rawValue, forKey: "cfmotoEncodeProfile")
+        refreshVideoOutputSummary()
+        reloadVisibleSettings()
+    }
+
     @objc private func zeehoVideoSettingsChanged() {
         guard !running else { return }
         UserDefaults.standard.set(selectedZeehoCanvas.rawValue, forKey: "zeehoSEPlusCanvas")
@@ -3399,6 +3463,9 @@ extension ReceiverViewController {
                 if outputMode == .zeehoSEPlus {
                     rows.append(.control(CWL("仪表目标帧率"), icon: ("gauge.with.dots.needle.67percent", .systemGreen), zeehoSEPlusFrameRateControl))
                     rows.append(.control("CarPlay 画面", icon: ("aspectratio", .systemGreen), zeehoSEPlusCanvasControl))
+                    rows.append(.control(CWL("编码码率"), icon: ("speedometer", .systemOrange), zeehoSEPlusBitrateControl))
+                    rows.append(.control(CWL("编码档位"), icon: ("film", .systemIndigo), zeehoSEPlusEncodeProfileControl))
+                    rows.append(.info(CWL("当前编码参数"), "\(selectedZeehoSEPlusBitrate.title) · \(selectedZeehoSEPlusEncodeProfile.title)"))
                     rows.append(.control("视频发送方式", icon: ("film", .systemIndigo), zeehoSEPlusVideoModeControl))
                     rows.append(.info("当前发送方式", selectedZeehoVideoMode.title))
                     rows.append(.info(CWL("使用说明"), "全宽适合本机 1600×770 仪表。直传兼容性待实测，黑屏时改回兼容转码。25 FPS 或启用 BMS 卡片时自动使用转码。锁屏时暂停手机预览，后台保持需开启。"))
@@ -3411,10 +3478,14 @@ extension ReceiverViewController {
                 rows.append(.note(zeehoStatus))
                 return [SettingsSection(name, footer: CWL("先在 CarWithin 点“启动本机 CarPlay”。若仪表没出画，保持 CarWithin 运行，再去极核 APP 打开仪表投屏导航。仪表出画后立刻切回或划掉极核 APP。声音由 iPhone 或蓝牙输出。"), rows)]
             case .cfmoto5, .cfmoto62:
-                return [SettingsSection(headUnitOutput.selectedTitle, footer: "iPhone 加入春风仪表 Wi-Fi 并开启仪表投屏，TCP 10920/10921/10922，探测 10930。留空 IP 时尝试同网段 .1，失败请填写实际仪表 IP。", [
+                var cfmotoRows: [SettingsRow] = [
                     .field(CWL("仪表 IP 地址"), cfmotoAddressField, placeholder: "留空尝试 .1"),
+                    .control(CWL("编码码率"), icon: ("speedometer", .systemOrange), cfmotoBitrateControl),
+                    .control(CWL("编码档位"), icon: ("film", .systemIndigo), cfmotoEncodeProfileControl),
+                    .info(CWL("当前参数"), "\(selectedCfmotoBitrate.title) · \(selectedCfmotoEncodeProfile.title)"),
                     .note(cfmotoStatus)
-                ])]
+                ]
+                return [SettingsSection(headUnitOutput.selectedTitle, footer: "iPhone 加入春风仪表 Wi-Fi 并开启仪表投屏，TCP 10920/10921/10922，探测 10930。留空 IP 时尝试同网段 .1，失败请填写实际仪表 IP。帧率由仪表协议决定。", cfmotoRows)]
             case .ninebot, .ninebotSeven, .ninebot43:
                 let fiveInch = outputMode == .ninebot
                 let startup = ninebotInstructions
@@ -3433,6 +3504,7 @@ extension ReceiverViewController {
                 return [
                     SettingsSection(headUnitOutput.selectedTitle, [
                         .field(CWL("仪表 IP 地址"), activeNinebotAddressField, placeholder: outputMode == .ninebot43 ? "192.168.169.1" : "192.168.1.1"),
+                        rows.append(.info(CWL("帧率与编码"), CWL("九号由仪表协议固定（5 寸 848×480@30、7 寸 1024×600@25），不支持调节")))
                         .note(ninebotStatus)
                     ]),
                     SettingsSection(CWL("使用说明"), instructions)
@@ -3452,6 +3524,7 @@ extension ReceiverViewController {
                         self.scanMotorcycleBluetooth()
                     })
                 }
+                rows.append(.info(CWL("帧率与编码"), CWL("该车型由仪表协议协商决定，不支持在 App 内调节")))
                 return [SettingsSection(profile.title, footer: profile.instructions, rows)]
             }
         }

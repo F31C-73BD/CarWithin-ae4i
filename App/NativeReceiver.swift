@@ -158,6 +158,8 @@ final class NativeReceiver {
                     model: "iPhone", systemVersion: ProcessInfo.processInfo.operatingSystemVersionString,
                     width: configuration.width, height: configuration.height, rotation: 1)
                 output.start(localAddress: configuration.address, targetAddress: target, phone: phone, profile: profile,
+                    bitrateOverride: configuration.cfmotoBitrate.bitsPerSecond,
+                    encodeProfile: configuration.cfmotoEncodeProfile,
                              onState: { [weak self] in self?.onCfmotoState?($0) },
                              onLog: { [weak self] in self?.log($0) },
                              requestKeyframe: { [weak self] in self?.requestKeyFrame(reason: "春风解码恢复") },

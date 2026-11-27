@@ -3475,7 +3475,8 @@ extension ReceiverViewController {
                 } else {
                     rows.append(.field(CWL("仪表 IP 地址"), activeZeehoAddressField, placeholder: "192.168.0.1"))
                 }
-                rows.append(.info(CWL("本机仪表"), "\(meterName ?? "—") · \(meterSizeText ?? "—")))
+                let meterText = [meterName ?? "-", meterSizeText ?? "-"].joined(separator: " · ")
+                rows.append(.info(CWL("本机仪表"), meterText))
                 rows.append(.note(zeehoStatus))
                 return [SettingsSection(name, footer: CWL("先在 CarWithin 点“启动本机 CarPlay”。若仪表没出画，保持 CarWithin 运行，再去极核 APP 打开仪表投屏导航。仪表出画后立刻切回或划掉极核 APP。声音由 iPhone 或蓝牙输出。"), rows)]
             case .cfmoto5, .cfmoto62:

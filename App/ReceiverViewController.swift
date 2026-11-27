@@ -3400,14 +3400,14 @@ extension ReceiverViewController {
         let controller = page(CWL("日志")) { [unowned self] in
             [
                 SettingsSection(footer: CWL("最近 200 条，不含 Wi-Fi 密码和 MFi 私钥。"), [.view(logView)]),
-                SettingsSection([
+                SettingsSection(footer: CWL("每次停止 CarPlay 时会自动保存一份到 App 的 Documents 目录，只保留最新一份。"), [
                     .action(CWL("复制日志"), icon: ("doc.on.doc.fill", .systemBlue)) { [unowned self] in
                         self.copyLog(); self.alert(CWL("已复制"), CWL("日志已复制到剪贴板。"))
                     },
                     .action(CWL("导出日志 TXT"), icon: ("square.and.arrow.up.fill", .systemGreen)) { [unowned self] in
                         self.exportLog()
                     }
-                ], footer: CWL("每次停止 CarPlay 时会自动保存一份到 App 的 Documents 目录，只保留最新一份。"))
+                ])
             ]
         }
         logView.constraints.filter { $0.firstAttribute == .height }.forEach { $0.constant = 380 }

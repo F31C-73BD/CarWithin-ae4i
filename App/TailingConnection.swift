@@ -232,8 +232,15 @@ final class TailingConnection: @unchecked Sendable {
 
     /// 输入诊断：按字节打印仪表发来的输入帧，用来确认按键/触摸的真实格式。
     private func logInput(_ name: String, _ payload: Data) {
-        let head = payload.prefix(48).map { String(format: "%02x", $0) }.joined(separator: " ")
-        log("[输入诊断] \(name) \(payload.count) 字节: \(head)\(payload.count > 48 ? " …" : "")")
+        // 诊断用：完整打印（上限 2KB），JSON 之类还能直接读出内容。
+        let limit = 2048
+        let head = payload.prefix(limit).map { String(format: "%02x", $0) }.joined(separator: " ")
+        let text = String(data: payload.prefix(limit), encoding: .utf8)?
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\r", with: " ")
+            .replacingOccurrences(of: "\t", with: " ")
+        let extra = (text?.isEmpty == false) ? " | \(text!)" : ""
+        log("[输入诊断] \(name) \(payload.count) 字节: \(head)\(payload.count > limit ? " …" : "")\(extra)")
     }
 
     private func accept(_ server: TailingSocket, port: UInt16) {

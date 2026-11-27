@@ -163,7 +163,7 @@ final class NativeReceiver {
             if let target = configuration.tailingAddress {
                 self.tailing.onLog = { [weak self] in self?.log($0) }
                 self.tailing.onState = { [weak self] in self?.onTailingState?($0) }
-                self.tailing.onKeyframeRequest = { [weak self] in self?.requestKeyFrame(reason: CWL("台铃解码恢复")) }
+                self.tailing.onKeyframeRequest = { [weak self] in self?.requestKeyFrame(reason: CWL("仪表解码恢复")) }
                 let phone = configuration.tailingPhoneInfo ?? TailingPhoneInfo(package: Bundle.main.bundleIdentifier ?? "CarWithin",
                     versionCode: Int(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "0") ?? 0,
                     model: "iPhone", systemVersion: ProcessInfo.processInfo.operatingSystemVersionString,

@@ -808,6 +808,10 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
             guard let self, self.running, self.outputMode.zeehoProfile != nil else { return }
             self.updateZeehoStatus(message)
         }
+        receiver.onZeehoStats = { [weak self] fps, bitrate in
+            guard let self, self.running, self.outputMode.zeehoProfile != nil else { return }
+            self.updateZeehoStats(fps: fps, bitrate: bitrate)
+        }
         receiver.onMotorcycleState = { [weak self] message in
             guard let self, self.running, self.outputMode.motorcycleProfile != nil else { return }
             self.updateMotorcycleStatus(message)
@@ -1226,7 +1230,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
             case .zeeho: return CWL("极核")
             case .cfmoto: return CWL("春风")
             case .tailing: return CWL("台铃")
-            case .other: return CWL("其他（待加入）")
+            case .other: return CWL("其他")
             }
         }
         var symbol: String {
@@ -1252,9 +1256,9 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         switch mode {
         case .ninebot, .ninebotSeven, .ninebot43: return .ninebot
         case .zeeho, .zeehoAE4i, .zeehoSEPlus, .zeehoAE2: return .zeeho
-        case .cfmoto5, .cfmoto62: return .cfmoto
+        case .cfmoto5, .cfmoto62, .cfmoto700MT, .cfmoto800MT, .cfmoto675SRR: return .cfmoto
         case .tailing: return .tailing
-        case .browser, .carLife, .airPlay: return .other
+        default: return .other
         }
     }
 
@@ -1288,15 +1292,16 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
 
     private func modelListPage(_ brand: HeadUnitBrand) -> SettingsPageController {
         page(brand.title) { [unowned self] in
+            let directOutputs: [HeadUnitOutput] = [.browser, .carLife, .airPlay]
             let rows = HeadUnitOutput.menuOrder
-                .filter { brand != .other && self.brand(of: $0) == brand }
+                .filter { self.brand(of: $0) == brand && !(brand == .other && directOutputs.contains($0)) }
                 .map { mode -> SettingsRow in
                     var row = SettingsRow.action(mode.title) { [unowned self] in self.choose(mode) }
                     row.checked = { [unowned self] in self.outputMode == mode }
                     return row
                 }
-            let footer = brand == .other
-                ? CWL("暂无车型，后续加入后会出现在这里。")
+            let footer = rows.isEmpty
+                ? CWL("暂无车型。")
                 : CWL("选择后立即生效，并自动返回。")
             return [SettingsSection(nil, footer: footer, rows)]
         }
@@ -1332,6 +1337,8 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
     /// 从日志里识别仪表型号与分辨率，并给出选择提示。
     /// 仪表断开后自动“停止 + 重新启动”，省掉手动两步；连续 5 次失败就收手并给提示。
     private func scheduleAutoReconnect() {
+        // 官方自带「自动重启」开关时交给它，避免两套重启互相触发。
+        guard !autoRestartSwitch.isOn else { return }
         guard running, outputMode.zeehoProfile != nil, !autoReconnectScheduled else { return }
         guard autoReconnectAttempts < 5 else {
             autoReconnectScheduled = false
@@ -1377,37 +1384,6 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
             log(CWL("日志保存失败：{1}", [String(describing: error.localizedDescription)]))
             return nil
         }
-    }
-
-    private var topMostController: UIViewController {
-        var top: UIViewController = self
-        while let presented = top.presentedViewController, !presented.isBeingDismissed {
-            top = presented
-        }
-        if let nav = top as? UINavigationController, let visible = nav.visibleViewController { return visible }
-        return top
-    }
-
-    private func shareLogFile(_ url: URL) {
-        let share = UIActivityViewController(activityItems: [url], applicationActivities: nil)
-        share.popoverPresentationController?.sourceView = view
-        share.popoverPresentationController?.sourceRect = CGRect(x: view.bounds.midX, y: view.bounds.midY, width: 0, height: 0)
-        topMostController.present(share, animated: true)
-    }
-
-    private func exportLog() {
-        guard let url = saveLogFile() else {
-            alert(CWL("导出失败"), CWL("日志为空或无法写入 Documents 目录。"))
-            return
-        }
-        let name = url.lastPathComponent
-        let message = CWL("已保存为 {1}\n\n位置：『文件』App → 我的 iPhone → CarWithin", [name])
-        let sheet = UIAlertController(title: CWL("日志已保存"), message: message, preferredStyle: .alert)
-        sheet.addAction(UIAlertAction(title: CWL("好"), style: .default))
-        sheet.addAction(UIAlertAction(title: CWL("再分享/发送"), style: .default) { [weak self] _ in
-            self?.shareLogFile(url)
-        })
-        topMostController.present(sheet, animated: true)
     }
 
     private func detectMeterInfo(_ message: String) {
@@ -1491,7 +1467,8 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
 
     @discardableResult
     private func configureConnectionCard(_ card: UIStackView, title: String, symbol: String, color: UIColor,
-                                         instructions: String, status: UILabel) -> UILabel {
+                                         instructions: String, status: UILabel,
+                                         onTitle: ((UILabel) -> Void)? = nil) -> UILabel {
         configureOutputCard(card)
         let icon = UIImageView(image: UIImage(systemName: symbol))
         icon.tintColor = color
@@ -1501,6 +1478,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         titleLabel.text = title
         titleLabel.font = .preferredFont(forTextStyle: .headline)
         titleLabel.adjustsFontForContentSizeCategory = true
+        onTitle?(titleLabel)
         let header = UIStackView(arrangedSubviews: [icon, titleLabel])
         header.spacing = 8; header.alignment = .center
         let help = UILabel()
@@ -3886,7 +3864,6 @@ extension ReceiverViewController {
         card.directionalLayoutMargins = NSDirectionalEdgeInsets(top: 16, leading: 8, bottom: 16, trailing: 8)
         return card
     }
-
 
 extension ReceiverViewController: UIDocumentPickerDelegate {
     func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {

@@ -158,8 +158,9 @@ final class MotorcycleOutput {
                     }
                 } catch {
                     if active {
-                        onLog("\(profile.title)输出失败：\(error.localizedDescription)")
-                        report("\(profile.title)连接失败：\(error.localizedDescription)")
+                        let raw = error.localizedDescription
+                        onLog("\(profile.title)连接失败（原始）：\(raw)")
+                        report("\(profile.title)连接失败：" + InstrumentErrorText.friendly(raw))
                     }
                 }
                 erya?.close(); yunmo?.close(); thinker?.close(); shouqu?.close()

@@ -148,6 +148,16 @@ enum TailingError: LocalizedError {
 /// 原始错误仍照常写日志，这里只影响界面显示。
 enum InstrumentErrorText {
     static func friendly(_ raw: String) -> String {
+        // 原文已经带了操作建议（作者写的具体提示）就原样保留，避免被概括掉。
+        for hint in ["请核对", "请确认", "请检查", "请打开", "请再试", "请先"] where raw.contains(hint) {
+            return raw
+        }
+        if raw.contains("拒绝连接") || raw.contains("refused (61)") || raw.contains("code == 61") {
+            return "仪表端口拒绝连接：可能是仪表没打开互联/投屏页，或者官方 App 还占着连接。请先退出官方 App，再确认仪表互联页面已打开，然后重试。"
+        }
+        if raw.contains("未返回 OK") || raw.contains("未返回") {
+            return "仪表没有返回参数：确认仪表已打开互联页面，IP 和端口填写正确后重试。"
+        }
         if raw.contains("10930") {
             return "连不上仪表的通知端口（10930）：仪表可能没打开投屏页，或这台仪表用的是另一套协议。可以先在「车型选择」里换一个同品牌型号再试。"
         }

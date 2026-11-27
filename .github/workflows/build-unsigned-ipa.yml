@@ -8,12 +8,10 @@ name: Build unsigned IPA
 # 不放进去时 App 会提示「Keychain 中未存储 MFi 身份」，CarPlay 起不来。
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
 
 jobs:
   build:
-    runs-on: macos-latest
+    runs-on: macos-15
     timeout-minutes: 40
     steps:
       - name: Checkout

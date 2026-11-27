@@ -424,7 +424,7 @@ final class TailingConnection: @unchecked Sendable {
             if loggedCommands.insert(UInt32(request.command)).inserted {
                 log(String(format: "[控制] 0x%08x %d 字节（首次）", UInt32(request.command), request.payload.count))
             }
-            if request.command == 0x103b0 {
+            if UInt32(request.command) == 0x103b0 {
                 logInput(String(format: "通道注册 0x%08x", request.command), request.payload)
             }
             switch request.command {

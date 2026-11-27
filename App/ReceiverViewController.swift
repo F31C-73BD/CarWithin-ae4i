@@ -3527,7 +3527,6 @@ extension ReceiverViewController {
                 rows.append(.info(CWL("帧率与编码"), CWL("该车型由仪表协议协商决定，不支持在 App 内调节")))
                 return [SettingsSection(profile.title, footer: profile.instructions, rows)]
             }
-        }
     }
 
     private func airPlayOutputSections() -> [SettingsSection] {
@@ -3938,6 +3937,7 @@ extension ReceiverViewController {
         return card
     }
 
+}
 extension ReceiverViewController: UIDocumentPickerDelegate {
     func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
         guard let url = urls.first, !running else { return }

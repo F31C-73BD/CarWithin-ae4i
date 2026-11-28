@@ -101,6 +101,19 @@ final class TailingSocket: @unchecked Sendable {
         }
     }
 
+    /// 对端端口（用于抓包标注，取不到就记 0）。
+    var peerPort: UInt16 {
+        guard let fd = try? duplicate() else { return 0 }
+        defer { release(fd) }
+        var address = sockaddr_in()
+        var size = socklen_t(MemoryLayout<sockaddr_in>.size)
+        let result = withUnsafeMutablePointer(to: &address) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { getpeername(fd, $0, &size) }
+        }
+        guard result == 0 else { return 0 }
+        return UInt16(bigEndian: address.sin_port)
+    }
+
     func readExactly(_ count: Int, timeout: TimeInterval? = 10, waitForFirstByte: Bool = false) throws -> Data {
         guard count >= 0, count <= 8 * 1_024 * 1_024 else {
             throw TailingError.protocolFailure(CWL("TCP 读取长度异常"))
@@ -126,6 +139,7 @@ final class TailingSocket: @unchecked Sendable {
                 throw TailingError.system(CWL("接收 TCP"), errno)
             }
         }
+        ProtocolTrace.shared.record(direction: "←", port: peerPort, data: data)
         return data
     }
 
@@ -147,6 +161,7 @@ final class TailingSocket: @unchecked Sendable {
                 throw TailingError.system(CWL("发送 TCP"), errno)
             }
         }
+        ProtocolTrace.shared.record(direction: "→", port: peerPort, data: data)
     }
 
     func close() {
@@ -226,5 +241,92 @@ final class TailingSocket: @unchecked Sendable {
             throw TailingError.protocolFailure(CWL("IPv4 地址无效"))
         }
         return address
+    }
+}
+
+
+// MARK: - 通用协议抓包（内存环形缓冲，失败时自动落盘）
+
+/// 记录所有 TCP/UDP 协议收发；默认只在内存里保留最近若干条，
+/// 连接失败或“协商通过却没有首帧”时自动写到 Documents，供排查用。
+final class ProtocolTrace: @unchecked Sendable {
+    static let shared = ProtocolTrace()
+
+    private let lock = NSLock()
+    private var entries: [String] = []
+    private var header = ""
+    private let limit = 3000          // 条数上限
+    private let maxBytesPerEntry = 512
+    private let keepFiles = 3         // 最多保留 3 份失败抓包
+
+    private let formatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm:ss.SSS"
+        return f
+    }()
+
+    /// 每次启动/切换会话时写入环境头。
+    func beginSession(_ text: String) {
+        lock.lock()
+        header = text
+        entries.removeAll(keepingCapacity: true)
+        lock.unlock()
+    }
+
+    func record(direction: String, port: UInt16, data: Data) {
+        guard !data.isEmpty else { return }
+        // 视频帧很大：只记长度，避免把控制消息挤出缓冲。
+        if data.count > 4096 {
+            let line = "\(formatter.string(from: Date())) \(direction) \(port) \(data.count)B  [视频帧，略]"
+            lock.lock(); entries.append(line)
+            if entries.count > limit { entries.removeFirst(entries.count - limit) }
+            lock.unlock()
+            return
+        }
+        let head = data.prefix(maxBytesPerEntry).map { String(format: "%02x", $0) }.joined(separator: " ")
+        let suffix = data.count > maxBytesPerEntry ? " …共 \(data.count) 字节" : ""
+        let line = "\(formatter.string(from: Date())) \(direction) \(port) \(data.count)B  \(head)\(suffix)"
+        lock.lock()
+        entries.append(line)
+        if entries.count > limit { entries.removeFirst(entries.count - limit) }
+        lock.unlock()
+    }
+
+    /// 失败时落盘（最多保留 keepFiles 份）。
+    @discardableResult
+    func saveOnFailure(_ reason: String) -> URL? {
+        lock.lock()
+        let body = entries
+        let head = header
+        lock.unlock()
+        guard !body.isEmpty else { return nil }
+
+        let manager = FileManager.default
+        guard let documents = manager.urls(for: .documentDirectory, in: .userDomainMask).first else { return nil }
+        // 只留最近 keepFiles 份
+        if let existing = try? manager.contentsOfDirectory(at: documents, includingPropertiesForKeys: nil) {
+            let olds = existing
+                .filter { $0.lastPathComponent.hasPrefix("protocol-fail-") && $0.pathExtension == "log" }
+                .sorted { $0.lastPathComponent < $1.lastPathComponent }
+            for url in olds.dropLast(max(0, keepFiles - 1)) { try? manager.removeItem(at: url) }
+        }
+
+        let stamp = DateFormatter()
+        stamp.dateFormat = "yyyyMMdd-HHmmss"
+        let url = documents.appendingPathComponent("protocol-fail-\(stamp.string(from: Date())).log")
+        let text = """
+        CarWithin 协议抓包
+        \(head)
+        失败原因：\(reason)
+        记录条数：\(body.count)
+
+        \(body.joined(separator: "\n"))
+        """
+        do {
+            try text.write(to: url, atomically: true, encoding: .utf8)
+            return url
+        } catch {
+            return nil
+        }
     }
 }

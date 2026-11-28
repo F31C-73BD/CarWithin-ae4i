@@ -353,6 +353,7 @@ final class ANTBMSClient: NSObject, CBCentralManagerDelegate, CBPeripheralDelega
     func peripheral(_ item:CBPeripheral,didUpdateValueFor characteristic:CBCharacteristic,error:Error?) {
         guard enabled,item === peripheral,characteristic === reader,error==nil,let data=characteristic.value else{return}
         let now=ProcessInfo.processInfo.systemUptime
+        ProtocolTrace.shared.record(direction: "← BMS", port: 0, data: data)
         for reading in parser.append(data,now:now) {
             sample=ANTBMSSample(reading:reading,uptime:now);lastValidAt=now;lastReadingUptime=now;retryDelay=2
             update("\(selectedFamily.shortName) 实时数据已连接", phase: .receiving)
@@ -410,6 +411,7 @@ final class ANTBMSClient: NSObject, CBCentralManagerDelegate, CBPeripheralDelega
         while !sendQueue.isEmpty {
             if type == .withoutResponse && !item.canSendWriteWithoutResponse{return}
             let part=sendQueue.removeFirst();writePending=type == .withResponse
+            ProtocolTrace.shared.record(direction: "→ BMS", port: 0, data: part)
             item.writeValue(part,for:writer,type:type)
             if writePending{return}
         }

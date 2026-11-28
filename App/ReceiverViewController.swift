@@ -161,6 +161,8 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
     var autoReconnectScheduled = false
     /// 本次会话是否已经因为“分辨率不匹配”自动换过车型（只换一次，避免来回跳）。
     var mismatchFixAttempted = false
+    /// “协商通过但迟迟没有首帧”的看门狗（AE3 Pro / AE6 U 这类）。
+    var negotiationWatchdog: DispatchWorkItem?
     var waitsForExternalOutput: Bool {
         outputMode != .browser && outputMode != .carLife && outputMode != .airPlay
     }
@@ -1408,6 +1410,8 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
     /// - 分辨率不匹配（选错车型）→ 自动换一次车型，不做无意义的重连；
     /// - 投屏真的断了（会话关闭/超时）→ 自动重连，最多 3 次。
     private func handleZeehoFailure(_ message: String) {
+        // 任何极核失败都先把最近的协议收发落盘，便于事后分析。
+        _ = ProtocolTrace.shared.saveOnFailure(CWL("极核失败：") + message)
         let isMismatch = message.contains(CWL("配置不符")) || message.contains(CWL("媒体尺寸"))
         guard isMismatch else {
             scheduleAutoReconnect()
@@ -1558,7 +1562,23 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         mismatchFixAttempted = false
     }
 
+    /// 协商已通过却 20 秒没有首帧：自动落盘抓包，方便定位（AE3 Pro / AE6 U 现象）。
+    private func scheduleNegotiationWatchdog() {
+        negotiationWatchdog?.cancel()
+        let item = DispatchWorkItem { [weak self] in
+            guard let self, self.running, !self.outputConnected else { return }
+            let reason = CWL("媒体协商通过但 20 秒内没有首帧（车型 \(self.outputMode.title)）")
+            self.log(CWL("已自动保存失败抓包：") + reason)
+            _ = ProtocolTrace.shared.saveOnFailure(reason)
+            _ = self.saveLogFile()
+        }
+        negotiationWatchdog = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 20, execute: item)
+    }
+
     private func markOutputConnected() {
+        negotiationWatchdog?.cancel()
+        negotiationWatchdog = nil
         autoReconnectAttempts = 0
         awaitingOutputConnection = false
         outputConnected = true
@@ -2115,6 +2135,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
             guard saveSettings(config) else { return }
             if keepAliveSwitch.isOn { keepAlive.start() }
             prepareOutputGate()
+        ProtocolTrace.shared.beginSession("车型：\(outputMode.title) / 本机 \(ReceiverConfiguration.wifiIPv4Address() ?? "-") / 仪表 \(usesAutomaticZeehoAddress ? "自动查找" : (activeZeehoAddressField.text ?? "-")) / Wi-Fi \(WiFiPresetStore.selected()?.ssid ?? "-")")
             view.endEditing(true); running = true; modeControl.isEnabled = false; setEditing(false)
             antBMS.recordingVehicleName = headUnitOutput.selectedTitle
             antBMS.setReceiving(true)
@@ -2639,6 +2660,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
             if !logView.text.isEmpty { logView.scrollRangeToVisible(NSRange(location: logView.text.utf16.count - 1, length: 1)) }
         }
         LocalDiagnosticLog.append("\(timestamp)  \(message)")
+        if message.contains(CWL("媒体协商完成")) { scheduleNegotiationWatchdog() }
         detectMeterInfo(message)
         if let range = message.range(of: CWL("极核连接失败（原始）：")) {
             let raw = String(message[range.upperBound...])

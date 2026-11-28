@@ -292,6 +292,12 @@ final class ProtocolTrace: @unchecked Sendable {
         lock.unlock()
     }
 
+    /// 手动保存当前抓包（成功会话也能存）。
+    @discardableResult
+    func saveNow(_ reason: String) -> URL? {
+        saveOnFailure(reason)
+    }
+
     /// 失败时落盘（最多保留 keepFiles 份）。
     @discardableResult
     func saveOnFailure(_ reason: String) -> URL? {

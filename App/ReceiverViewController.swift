@@ -140,7 +140,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         config.titleLineBreakMode = .byTruncatingTail
         config.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
             var outgoing = incoming
-            outgoing.font = UIFont.preferredFont(forTextStyle: .footnote)
+            outgoing.font = UIFont.preferredFont(forTextStyle: .caption1)
             return outgoing
         }
         button.configuration = config
@@ -151,8 +151,12 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         return button
     }()
     let zeehoStatsLabel = UILabel()
+    /// 本次会话实际使用的目标帧率（设置可能已被改过，统计要用会话值）。
+    private var activeZeehoFrameRate: ZeehoFrameRate = .fps25
     /// 极核卡片标题（随车型变化：品牌+型号+仪表连接）。
     var zeehoCardTitleLabel: UILabel?
+    /// 车型与仪表分辨率不符时的“一键切换”按钮。
+    private var zeehoFixButton: UIButton?
     /// 外部输出（极核/春风/九号/台铃）必须先连上仪表，App 内才显示预览。
     var awaitingOutputConnection = false
     var outputConnected = false
@@ -1321,6 +1325,52 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         ])
     }
 
+    /// 推荐车型：按仪表上报分辨率选最合适的一档。
+    private var recommendedModel: HeadUnitOutput? {
+        guard let sizeText = meterSizeText else { return nil }
+        if let exact = Self.model(for: sizeText) { return exact }
+        if let profile = outputMode.zeehoProfile, let size = Self.parseFrameSize(sizeText),
+           profile.outputSize(for: size) != nil { return outputMode }
+        return .zeehoAE4i
+    }
+
+    private static func parseFrameSize(_ text: String) -> InstrumentFrameSize? {
+        let parts = text.split(separator: "×")
+        guard parts.count == 2, let w = Int(parts[0]), let h = Int(parts[1]) else { return nil }
+        return InstrumentFrameSize(width: w, height: h)
+    }
+
+    /// 一键切换到推荐车型并重启。
+    private func applyRecommendedModel() {
+        guard let target = recommendedModel, target != outputMode,
+              let index = HeadUnitOutput.menuOrder.firstIndex(of: target) else { return }
+        headUnitOutput.selectedSegmentIndex = index
+        headUnitOutputChanged()
+        log(CWL("已按仪表上报 {1} 切到「{2}」", [meterSizeText ?? "-", target.title]))
+        guard running else { return }
+        stop()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { [weak self] in
+            guard let self, !self.running else { return }
+            self.toggleReceiver()
+        }
+    }
+
+    /// 根据当前车型能否接受仪表上报尺寸，决定是否显示“切换”提示。
+    private func refreshModelMismatchHint() {
+        guard let fix = zeehoFixButton else { return }
+        var shouldShow = false
+        if let sizeText = meterSizeText, let size = Self.parseFrameSize(sizeText),
+           let profile = outputMode.zeehoProfile, profile.outputSize(for: size) == nil {
+            shouldShow = true
+        }
+        guard shouldShow, let target = recommendedModel, target != outputMode else {
+            fix.isHidden = true
+            return
+        }
+        fix.setTitle(CWL("仪表到 {1}，当前车型不支持；点此切到「{2}」", [meterSizeText ?? "-", target.title]), for: .normal)
+        fix.isHidden = false
+    }
+
     /// 车型简称：去掉品牌前缀，避免下拉行被撑成多行。
     private func shortTitle(_ mode: HeadUnitOutput) -> String {
         let title = mode.title
@@ -1337,6 +1387,16 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
     /// 品牌 → 车型的原生下拉菜单。
     private func rebuildModelMenu() {
         modelMenuButton.configuration?.title = shortTitle(outputMode)
+        if running {
+            // 投屏中不允许改车型：直接给提示 + 停止按钮，避免会话参数与新车型打架。
+            modelMenuButton.menu = UIMenu(title: "", children: [
+                UIAction(title: CWL("当前正在投屏，请先停止投屏再修改车型"), attributes: .disabled) { _ in },
+                UIAction(title: CWL("停止投屏"), image: UIImage(systemName: "stop.fill"), attributes: .destructive) { [weak self] _ in
+                    self?.stop()
+                }
+            ])
+            return
+        }
         let directTitles: [HeadUnitOutput] = [.browser, .carLife, .airPlay]
         let directItems = directTitles.map { mode in
             UIAction(title: mode.title, state: outputMode == mode ? .on : .off) { [weak self] _ in
@@ -1531,6 +1591,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
                     meterSizeText = text
                     changed = true
                     autoSelectModel(for: text)
+                    refreshModelMismatchHint()
                     if text == "2048×968", outputMode.zeehoProfile != nil, outputMode != .zeehoAE4i, !running {
                         log(CWL("检测到仪表上报 2048×968，建议在「输出设置 → 车型选择」里选择「极核 AE4i Pro+ 6.2 寸」。"))
                     }
@@ -1541,7 +1602,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
     }
 
     private func updateZeehoStats(fps: Double, bitrate: Int) {
-        let target = selectedZeehoFrameRate.rawValue
+        let target = activeZeehoFrameRate.rawValue
         let bitrateChoice: String
         if outputMode == .zeehoAE4i {
             let option = selectedZeehoAE4iBitrate
@@ -1732,6 +1793,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         if let profile = outputMode.zeehoProfile {
             config.zeehoProfile = profile
             config.zeehoFrameRate = selectedZeehoFrameRate
+            activeZeehoFrameRate = config.zeehoFrameRate
             config.zeehoVideoMode = selectedZeehoVideoMode
             if outputMode == .zeehoAE4i || outputMode == .zeehoAE4Max25 {
                 config.zeehoBitrate = selectedZeehoAE4iBitrate
@@ -2178,7 +2240,8 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
             if keepAliveSwitch.isOn { keepAlive.start() }
             view.endEditing(true)
             prepareOutputGate()
-            running = true; modeControl.isEnabled = false; setEditing(false)
+            running = true
+        rebuildModelMenu(); modeControl.isEnabled = false; setEditing(false)
             antBMS.recordingVehicleName = headUnitOutput.selectedTitle
             antBMS.setReceiving(true)
             startButton.setTitle(CWL("停止 CarPlay"), for: .normal)
@@ -2327,6 +2390,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         updateAirPlayStatus(CWL("等待启动 CarPlay。"))
         updateCarLifeStatus(CWL("等待启动 CarPlay。"))
         running = false
+        rebuildModelMenu()
         sessionHasVehicleButton = false
         screenAdaptation?.cancel(); screenAdaptation = nil
         reportedScreen = nil; primaryViewer = nil; pendingRestartReason = nil
@@ -4037,7 +4101,8 @@ extension ReceiverViewController {
                 SettingsSection([.view(self.aboutIdentityCard())]),
                 SettingsSection(CWL("本分支"), [
                     .page(CWL("改版记录"), icon: ("clock.arrow.circlepath", .systemPurple)) { [unowned self] in self.changelogPage() },
-                    .action(CWL("最近一次协议抓包"), icon: ("doc.text.magnifyingglass", .systemTeal)) { [unowned self] in self.openLatestProtocolTrace() }
+                    .action(CWL("最近一次协议抓包"), icon: ("doc.text.magnifyingglass", .systemTeal)) { [unowned self] in self.openLatestProtocolTrace() },
+                    .action(CWL("保存当前抓包"), icon: ("square.and.arrow.down", .systemBlue)) { [unowned self] in self.saveCurrentTrace() }
                 ]),
                 SettingsSection(footer: "Copyright © 2026 xmz28", self.aboutLinks() + [.info(CWL("极核适配"), CWL("飞扬大大 · 大肥鱼（AI 助手）"))])
             ]
@@ -4106,6 +4171,16 @@ extension ReceiverViewController {
 
     private func changelogSection(_ title: String, _ items: [(String, String)]) -> SettingsSection {
         SettingsSection(title, items.map { .info($0.0, $0.1) })
+    }
+
+    /// 手动保存当前会话抓包（成功会话也能存，便于和失败记录对比）。
+    fileprivate func saveCurrentTrace() {
+        if let url = ProtocolTrace.shared.saveNow(CWL("手动保存")) {
+            log(CWL("已保存当前抓包：") + url.lastPathComponent)
+            openLatestProtocolTrace()
+        } else {
+            alert(CWL("暂无抓包"), CWL("还没有记录到协议收发，先启动一次投屏再试。"))
+        }
     }
 
     /// 打开最近一次自动保存的协议抓包。

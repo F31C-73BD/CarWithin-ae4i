@@ -137,6 +137,8 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
     /// 仪表断开后的自动重连计数（每次成功投屏清零，最多连续 5 次）。
     var autoReconnectAttempts = 0
     var autoReconnectScheduled = false
+    /// 本次会话是否已经因为“分辨率不匹配”自动换过车型（只换一次，避免来回跳）。
+    var mismatchFixAttempted = false
     var waitsForExternalOutput: Bool {
         outputMode != .browser && outputMode != .carLife && outputMode != .airPlay
     }
@@ -229,7 +231,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
     }
     private func updateZeehoStatus(_ message: String) {
         if message.contains(CWL("正在投屏")) { markOutputConnected() }
-        if message.contains(CWL("极核连接失败")) { scheduleAutoReconnect() }
+        // 失败处理统一在原始错误日志那一侧触发（见 log 里的“极核连接失败（原始）”）。
         if !message.hasPrefix(CWL("正在投屏")) {
             if zeehoStatsLabel.text?.hasPrefix(CWL("诊断：")) != true { zeehoStatsLabel.isHidden = true }
         }
@@ -1377,14 +1379,64 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
     }
 
     /// 从日志里识别仪表型号与分辨率，并给出选择提示。
+    /// 极核连接失败后的处理：
+    /// - 分辨率不匹配（选错车型）→ 自动换一次车型，不做无意义的重连；
+    /// - 投屏真的断了（会话关闭/超时）→ 自动重连，最多 3 次。
+    private func handleZeehoFailure(_ message: String) {
+        let isMismatch = message.contains(CWL("配置不符")) || message.contains(CWL("媒体尺寸"))
+        guard isMismatch else {
+            scheduleAutoReconnect()
+            return
+        }
+        guard !mismatchFixAttempted else {
+            log(CWL("仪表分辨率与当前车型仍不匹配，已停止自动重试。请在「输出设置 → 车型选择」里手动选择对应型号。"))
+            return
+        }
+        mismatchFixAttempted = true
+        let sizeText = Self.parseSize(from: message)
+        if let sizeText, let target = Self.model(for: sizeText) {
+            guard let index = HeadUnitOutput.menuOrder.firstIndex(of: target) else { return }
+            headUnitOutput.selectedSegmentIndex = index
+            headUnitOutputChanged()
+            log(CWL("仪表上报 {1}，当前车型不匹配，已自动切换到「{2}」并重启一次。", [sizeText, target.title]))
+            autoReconnectAttempts = 0
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
+                guard let self, self.running else { return }
+                self.stop()
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                    guard let self, !self.running else { return }
+                    self.toggleReceiver()
+                }
+            }
+            return
+        }
+        log(CWL("仪表分辨率与当前车型不匹配，且无法判断对应型号。请在「输出设置 → 车型选择」里手动选择。"))
+    }
+
+    /// 从错误文本里解析分辨率，如 “2048×968”。
+    private static func parseSize(from text: String) -> String? {
+        guard let range = text.range(of: "\\d{3,4}[×xX]\\d{3,4}", options: .regularExpression) else { return nil }
+        return String(text[range]).replacingOccurrences(of: "x", with: "×")
+            .replacingOccurrences(of: "X", with: "×")
+    }
+
+    /// 分辨率 → 车型。
+    private static func model(for sizeText: String) -> HeadUnitOutput? {
+        switch sizeText {
+        case "2048×968": return .zeehoAE4i
+        case "1024×480", "1024×488": return .zeehoAE2
+        default: return nil
+        }
+    }
+
     /// 仪表断开后自动“停止 + 重新启动”，省掉手动两步；连续 5 次失败就收手并给提示。
     private func scheduleAutoReconnect() {
         // 官方自带「自动重启」开关时交给它，避免两套重启互相触发。
         guard !autoRestartSwitch.isOn else { return }
         guard running, outputMode.zeehoProfile != nil, !autoReconnectScheduled else { return }
-        guard autoReconnectAttempts < 5 else {
+        guard autoReconnectAttempts < 3 else {
             autoReconnectScheduled = false
-            let text = CWL("已连续 5 次自动重连失败，先停在这里。请检查：手机是否还连着仪表 Wi-Fi、仪表是否已打开投屏；确认后点「启动本机 CarPlay」即可。")
+            let text = CWL("已连续 3 次自动重连失败，先停在这里。请检查：手机是否还连着仪表 Wi-Fi、仪表是否已打开投屏；确认后点「启动本机 CarPlay」即可。")
             log(text)
             updateZeehoStatus(text)
             return
@@ -1477,6 +1529,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         awaitingOutputConnection = waitsForExternalOutput
         outputConnected = false
         autoReconnectAttempts = 0
+        mismatchFixAttempted = false
     }
 
     private func markOutputConnected() {
@@ -2563,6 +2616,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         detectMeterInfo(message)
         if let range = message.range(of: CWL("极核连接失败（原始）：")) {
             let raw = String(message[range.upperBound...])
+            handleZeehoFailure(raw)
             let summary = zeehoFailureSummary(raw)
             log(CWL("[诊断] ") + summary)
             zeehoStatsLabel.text = CWL("诊断：") + summary

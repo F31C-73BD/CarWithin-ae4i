@@ -131,13 +131,23 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
     /// 车型选择：原生下拉菜单（品牌 → 车型）。
     private lazy var modelMenuButton: UIButton = {
         let button = UIButton(type: .system)
-        var config = UIButton.Configuration.plain()
-        config.image = UIImage(systemName: "chevron.up.chevron.down")
+        var config = UIButton.Configuration.tinted()
+        config.image = UIImage(systemName: "chevron.down")
         config.imagePlacement = .trailing
-        config.imagePadding = 6
-        config.contentInsets = .zero
+        config.imagePadding = 4
+        config.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 10, bottom: 6, trailing: 10)
+        config.cornerStyle = .capsule
+        config.titleLineBreakMode = .byTruncatingTail
+        config.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { incoming in
+            var outgoing = incoming
+            outgoing.font = UIFont.preferredFont(forTextStyle: .footnote)
+            return outgoing
+        }
         button.configuration = config
         button.showsMenuAsPrimaryAction = true
+        button.titleLabel?.numberOfLines = 1
+        button.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        button.setContentHuggingPriority(.defaultLow, for: .horizontal)
         return button
     }()
     let zeehoStatsLabel = UILabel()
@@ -1307,9 +1317,22 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         ])
     }
 
+    /// 车型简称：去掉品牌前缀，避免下拉行被撑成多行。
+    private func shortTitle(_ mode: HeadUnitOutput) -> String {
+        let title = mode.title
+        let brand = brand(of: mode).title
+        for prefix in [brand, CWL("摩托")] where !prefix.isEmpty {
+            if title.hasPrefix(prefix) {
+                let rest = title.dropFirst(prefix.count).trimmingCharacters(in: .whitespaces)
+                if !rest.isEmpty { return rest }
+            }
+        }
+        return title
+    }
+
     /// 品牌 → 车型的原生下拉菜单。
     private func rebuildModelMenu() {
-        modelMenuButton.configuration?.title = outputMode.title
+        modelMenuButton.configuration?.title = shortTitle(outputMode)
         let directTitles: [HeadUnitOutput] = [.browser, .carLife, .airPlay]
         let directItems = directTitles.map { mode in
             UIAction(title: mode.title, state: outputMode == mode ? .on : .off) { [weak self] _ in
@@ -1337,7 +1360,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         guard let index = HeadUnitOutput.menuOrder.firstIndex(of: mode) else { return }
         headUnitOutput.selectedSegmentIndex = index
         headUnitOutputChanged()
-        settingsNavigation?.popToRootViewController(animated: true)
+        // 留在当前「输出设置」页，不跳回主菜单。
     }
 
     // MARK: 极核卡片：标题与实时状态

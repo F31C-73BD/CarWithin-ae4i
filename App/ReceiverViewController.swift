@@ -427,6 +427,13 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         }
         var cfmoto: Bool { self == .cfmoto5 || self == .cfmoto62 }
         var usesInstrumentWiFi: Bool { motorcycleProfile != nil || cfmoto || self == .tailing || zeehoProfile != nil || ninebotMode != nil }
+        /// 是否支持在 App 内调帧率/码率/编码档位。旧协议栈固定 25 FPS / Baseline；AE2 新栈但固定 auto/baseline。
+        var supportsZeehoEncodingControls: Bool {
+            switch self {
+            case .zeehoAE4i, .zeehoAE4Max25, .zeehoAdaptive: return true
+            default: return false
+            }
+        }
     }
     private var airPlayStreamID: UUID?
     private var airPlayStreamURL: URL?
@@ -1484,28 +1491,9 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
                    [local, target, ssid, portText, raw])
     }
 
-    /// 按仪表上报的分辨率自动匹配极核车型（仅在未投屏时切换，避免打断会话）。
-    private func autoSelectModel(for sizeText: String) {
-        guard !running, outputMode.zeehoProfile != nil, outputMode != .zeehoAdaptive else { return }
-        let target: HeadUnitOutput?
-        switch sizeText {
-        case "2048×968": target = .zeehoAE4i
-        case "1024×600": target = .zeehoAE4Max25
-        case "1024×484": target = .zeehoAE4i
-        case "1024×480", "1024×488": target = .zeehoAE2
-        default: target = nil
-        }
-        guard let target, target != outputMode else { return }
-        guard let index = HeadUnitOutput.menuOrder.firstIndex(of: target) else { return }
-        headUnitOutput.selectedSegmentIndex = index
-        headUnitOutputChanged()
-        log(CWL("已按仪表上报 {1} 自动切换到「{2}」", [sizeText, target.title]))
-    }
-
     /// 从日志里识别仪表型号与分辨率，并给出选择提示。
-    /// 极核连接失败后的处理：
-    /// - 分辨率不匹配（选错车型）→ 自动换一次车型，不做无意义的重连；
-    /// - 投屏真的断了（会话关闭/超时）→ 自动重连，最多 3 次。
+    /// 具体车型：不自动换车型（用户选了什么就用什么），只在分辨率不符时提示一次；
+    /// 投屏真的断了（会话关闭/超时）→ 自动重连，最多 3 次。
     private func handleZeehoFailure(_ message: String) {
         // 任何极核失败都先把最近的协议收发落盘，便于事后分析。
         _ = ProtocolTrace.shared.saveOnFailure(CWL("极核失败：") + message)
@@ -1519,29 +1507,11 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
             scheduleAutoReconnect()
             return
         }
-        guard !mismatchFixAttempted else {
-            log(CWL("仪表分辨率与当前车型仍不匹配，已停止自动重试。请在「输出设置 → 车型选择」里手动选择对应型号。"))
-            return
-        }
+        // 具体车型不自动换车型：只提示一次，由用户自己决定要不要换。
+        guard !mismatchFixAttempted else { return }
         mismatchFixAttempted = true
-        let sizeText = Self.parseSize(from: message)
-        if let sizeText, let target = Self.model(for: sizeText) {
-            guard let index = HeadUnitOutput.menuOrder.firstIndex(of: target) else { return }
-            headUnitOutput.selectedSegmentIndex = index
-            headUnitOutputChanged()
-            log(CWL("仪表上报 {1}，当前车型不匹配，已自动切换到「{2}」并重启一次。", [sizeText, target.title]))
-            autoReconnectAttempts = 0
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
-                guard let self, self.running else { return }
-                self.stop()
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-                    guard let self, !self.running else { return }
-                    self.toggleReceiver()
-                }
-            }
-            return
-        }
-        log(CWL("仪表分辨率与当前车型不匹配，且无法判断对应型号。请在「输出设置 → 车型选择」里手动选择。"))
+        let sizeText = Self.parseSize(from: message).map { "（仪表上报 \($0)）" } ?? ""
+        log(CWL("仪表分辨率与当前车型不匹配{1}，按你选的车型继续，不自动切换。需要的话请在「输出设置 → 车型选择」里手动换型号或选「全系自适应」。", [sizeText]))
     }
 
     /// 从错误文本里解析分辨率，如 “2048×968”。
@@ -1625,17 +1595,15 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
             }
         }
         if let range = message.range(of: CWL("仪表报告 ")) {
-            let rest = message[range.upperBound...]
-            if let token = rest.split(separator: " ").first, token.contains("×"), token.count <= 12 {
-                let text = String(token)
-                if text != meterSizeText {
-                    meterSizeText = text
-                    changed = true
-                    autoSelectModel(for: text)
-                    refreshModelMismatchHint()
-                    if text == "2048×968", outputMode.zeehoProfile != nil, outputMode != .zeehoAE4i, outputMode != .zeehoAdaptive, !running {
-                        log(CWL("检测到仪表上报 2048×968，建议在「输出设置 → 车型选择」里选择「极核 AE4i Pro+ 6.2 寸」。"))
-                    }
+            let rest = String(message[range.upperBound...])
+            // 日志是「仪表报告 2048×968，回应 H.264 / 2048×968」，按空格切会把「，回应」吞进去；
+            // 用正则只取分辨率本身。
+            if let text = Self.parseSize(from: rest), text != meterSizeText {
+                meterSizeText = text
+                changed = true
+                refreshModelMismatchHint()
+                if text == "2048×968", outputMode.zeehoProfile != nil, outputMode != .zeehoAE4i, outputMode != .zeehoAdaptive, !running {
+                    log(CWL("检测到仪表上报 2048×968，建议在「输出设置 → 车型选择」里选择「极核 AE4i Pro+ 6.2 寸」。"))
                 }
             }
         }
@@ -1645,7 +1613,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
     private func updateZeehoStats(fps: Double, bitrate: Int) {
         let target = activeZeehoFrameRate.rawValue
         let bitrateChoice: String
-        if outputMode == .zeehoAE4i || outputMode == .zeehoAdaptive {
+        if outputMode == .zeehoAE4i || outputMode == .zeehoAE4Max25 || outputMode == .zeehoAdaptive {
             let option = selectedZeehoAE4iBitrate
             bitrateChoice = option == .auto ? CWL("自动") : "\(option.rawValue) Mbit/s"
         } else {
@@ -1653,10 +1621,27 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         }
         let profile = (outputMode == .zeehoAE4i || outputMode == .zeehoAE4Max25 || outputMode == .zeehoAdaptive) && selectedZeehoAE4iEncodeProfile == .main ? "Main" : "Baseline"
         let meter = [meterName, meterSizeText].compactMap { $0 }.joined(separator: " · ")
+        let meterText = meter.isEmpty ? "" : meter + (recognizedZeehoModel.map { " · 识别：" + $0 } ?? "")
         let stats = String(format: CWL("帧率 %.1f/%d · 码率 %.1f/%@ · 编码 %@"),
                            fps, target, Double(bitrate) / 1_000_000, bitrateChoice, profile)
-        zeehoStatsLabel.text = meter.isEmpty ? stats : meter + " · " + stats
+        zeehoStatsLabel.text = meterText.isEmpty ? stats : meterText + " · " + stats
         zeehoStatsLabel.isHidden = false
+    }
+
+    /// 按 HUName + 上报尺寸识别车型（只显示，不自动切）。
+    private var recognizedZeehoModel: String? {
+        if let name = meterName {
+            if name.hasPrefix("CFDL29-F200") { return CWL("极核二代屏（AE4i Pro+）") }
+            if name.hasPrefix("CFDL29-FE4V") { return CWL("极核 AE3 Pro") }
+            if name.hasPrefix("CFDL29-FB71") { return CWL("极核 AE6 U") }
+        }
+        switch meterSizeText {
+        case "2048×968": return CWL("极核二代屏（AE4i Pro+）")
+        case "1600×770": return CWL("极核 AE3 Pro")
+        case "1024×600": return CWL("极核 AE4 MAX（2025）")
+        case "1024×480", "1024×484", "1024×488": return CWL("极核 AE2 / AE6 类")
+        default: return nil
+        }
     }
 
     // MARK: 预览门控：外部输出连上仪表后才显示画面
@@ -2913,6 +2898,11 @@ extension ReceiverViewController {
             defaults.removeObject(forKey: "zeehoAE4iFrameRate")
             defaults.set(true, forKey: "didApplyDefaultFrameRate25")
         }
+        if !defaults.bool(forKey: "didApplyAdaptiveFrameRate25") {
+            // 1.3.14：全系/二代自适应默认 25 FPS（之后仍可手动改；一代屏旧栈本身固定 25）。
+            defaults.removeObject(forKey: "zeehoAE4iFrameRate")
+            defaults.set(true, forKey: "didApplyAdaptiveFrameRate25")
+        }
         if !defaults.bool(forKey: "didApplyLeftHandDefaultV2") {
             defaults.set(false, forKey: "rightHandDrive"); defaults.set(true, forKey: "didApplyLeftHandDefaultV2")
         }
@@ -3155,6 +3145,11 @@ extension ReceiverViewController {
         }
     }
     @objc private func headUnitOutputChanged() {
+        // 切换车型时清掉上一台仪表留下的识别信息与状态，避免「标题换了、内容还是上一台」。
+        meterName = nil
+        meterSizeText = nil
+        zeehoStatsLabel.text = nil
+        zeehoStatsLabel.isHidden = true
         updateConnectionCardTitle()
         saveMotorcycleAddress()
         motorcycleScanGeneration += 1; motorcycleScanner?.stop(); motorcycleScanner = nil
@@ -3783,34 +3778,18 @@ extension ReceiverViewController {
             case .carLife: return carLifeOutputSections()
             case .airPlay: return airPlayOutputSections()
             case .tailing: return tailingOutputSections()
-            case .zeeho, .zeehoAE4i, .zeehoSEPlus, .zeehoAE2, .zeehoAdaptive:
+            case .zeeho, .zeehoAE4i, .zeehoSEPlus, .zeehoAE2, .zeehoAdaptive, .zeehoAE4Max25:
                 let name: String
                 switch outputMode {
                 case .zeehoAE2: name = "极核 AE2 Pro 5 寸"
                 case .zeehoSEPlus: name = "极核 AE4 SE+ 升级版 5/5.5 寸"
                 case .zeehoAE4i: name = CWL("极核二代屏（自适应）")
+                case .zeehoAE4Max25: name = CWL("极核 AE4 MAX（2025）6.2 寸")
                 case .zeehoAdaptive: name = CWL("极核全系自适应")
                 default: name = CWL("极核一代屏（自适应）")
                 }
                 var rows: [SettingsRow] = []
                 rows.append(.control("自动查找仪表 IP", icon: ("network", .systemBlue), outputMode == .zeehoSEPlus ? zeehoSEPlusAutomaticSwitch : zeeho62AutomaticSwitch))
-                if outputMode == .zeeho {
-                    rows.append(.info(CWL("帧率与编码"), CWL("该型号（旧协议栈）固定 25 FPS / Baseline")))
-                }
-                if outputMode == .zeehoAdaptive {
-                    rows.append(.info(CWL("自适应方式"), CWL("依次尝试：新栈 H.264 → 新栈 JPEG → 旧栈 H.264 → 旧栈 JPEG，每组等 10 秒首帧；成功后记住组合，下次直接用。")))
-                    rows.append(.control(CWL("仪表目标帧率"), icon: ("gauge.with.dots.needle.67percent", .systemGreen), zeehoAE4iFrameRateControl))
-                    rows.append(.control(CWL("编码码率"), icon: ("speedometer", .systemOrange), zeehoAE4iBitrateControl))
-                    rows.append(.control(CWL("编码档位"), icon: ("film", .systemIndigo), zeehoAE4iEncodeProfileControl))
-                    rows.append(.info(CWL("当前参数"), "\(selectedZeehoAE4iFrameRate.rawValue) FPS · \(selectedZeehoAE4iBitrate.title) · \(selectedZeehoAE4iEncodeProfile.title)"))
-                }
-                if outputMode == .zeehoAE4i || outputMode == .zeehoAE4Max25 {
-                    rows.append(.info(CWL("画面规格"), CWL("跟随仪表上报尺寸 · 最高 2048×968 · H.264")))
-                    rows.append(.control(CWL("仪表目标帧率"), icon: ("gauge.with.dots.needle.67percent", .systemGreen), zeehoAE4iFrameRateControl))
-                    rows.append(.control(CWL("编码码率"), icon: ("speedometer", .systemOrange), zeehoAE4iBitrateControl))
-                    rows.append(.control(CWL("编码档位"), icon: ("film", .systemIndigo), zeehoAE4iEncodeProfileControl))
-                    rows.append(.info(CWL("当前参数"), "\(selectedZeehoAE4iFrameRate.rawValue) FPS · \(selectedZeehoAE4iBitrate.title) · \(selectedZeehoAE4iEncodeProfile.title)"))
-                }
                 if outputMode == .zeehoSEPlus {
                     rows.append(.control(CWL("仪表目标帧率"), icon: ("gauge.with.dots.needle.67percent", .systemGreen), zeehoSEPlusFrameRateControl))
                     rows.append(.control("CarPlay 画面", icon: ("aspectratio", .systemGreen), zeehoSEPlusCanvasControl))
@@ -3820,14 +3799,25 @@ extension ReceiverViewController {
                     rows.append(.control("视频发送方式", icon: ("film", .systemIndigo), zeehoSEPlusVideoModeControl))
                     rows.append(.info("当前发送方式", selectedZeehoVideoMode.title))
                     rows.append(.info(CWL("使用说明"), "全宽适合本机 1600×770 仪表。直传兼容性待实测，黑屏时改回兼容转码。25 FPS 或启用 BMS 卡片时自动使用转码。锁屏时暂停手机预览，后台保持需开启。"))
+                } else if outputMode.supportsZeehoEncodingControls {
+                    if outputMode == .zeehoAdaptive {
+                        rows.append(.info(CWL("自适应方式"), CWL("依次尝试：新栈 H.264 → 新栈 JPEG → 旧栈 H.264 → 旧栈 JPEG，每组等 10 秒首帧；成功后记住组合，下次直接用。")))
+                    }
+                    rows.append(.control(CWL("仪表目标帧率"), icon: ("gauge.with.dots.needle.67percent", .systemGreen), zeehoAE4iFrameRateControl))
+                    rows.append(.control(CWL("编码码率"), icon: ("speedometer", .systemOrange), zeehoAE4iBitrateControl))
+                    rows.append(.control(CWL("编码档位"), icon: ("film", .systemIndigo), zeehoAE4iEncodeProfileControl))
+                    rows.append(.info(CWL("当前参数"), "\(selectedZeehoAE4iFrameRate.rawValue) FPS · \(selectedZeehoAE4iBitrate.title) · \(selectedZeehoAE4iEncodeProfile.title)"))
+                } else {
+                    rows.append(.info(CWL("帧率与编码"), CWL("该型号固定 25 FPS / Baseline，不支持在 App 内调节")))
                 }
                 if usesAutomaticZeehoAddress {
                     rows.append(.info("仪表 IP", "连接时自动匹配，结果见日志"))
                 } else {
                     rows.append(.field(CWL("仪表 IP 地址"), activeZeehoAddressField, placeholder: "192.168.0.1"))
                 }
-                let meterText = [meterName ?? "-", meterSizeText ?? "-"].joined(separator: " · ")
-                rows.append(.info(CWL("本机仪表"), meterText))
+                var meterText = [meterName, meterSizeText].compactMap { $0 }.joined(separator: " · ")
+                if let recognized = recognizedZeehoModel { meterText += " · 识别：" + recognized }
+                rows.append(.info(CWL("本机仪表"), meterText.isEmpty ? "-" : meterText))
                 rows.append(.note(zeehoStatus))
                 return [SettingsSection(name, footer: CWL("先在 CarWithin 点“启动本机 CarPlay”。若仪表没出画，保持 CarWithin 运行，再去极核 APP 打开仪表投屏导航。仪表出画后立刻切回或划掉极核 APP。声音由 iPhone 或蓝牙输出。"), rows)]
             case .cfmoto5, .cfmoto62:
@@ -4255,6 +4245,26 @@ extension ReceiverViewController {
     fileprivate func changelogPage() -> SettingsPageController {
         page(CWL("改版记录")) { [unowned self] in
             [
+                changelogSection(CWL("1.3.14（基于作者 v1.0.6）"), [
+                    (CWL("问题"), CWL("切换车型后仍显示上一台仪表的信息；具体车型会被按上报尺寸自动改选；AE4 MAX 输出设置页空白")),
+                    (CWL("修改"), CWL("按 HUName + 上报尺寸显示「识别：XX」（只显示不自动切）；切车型清空旧状态；具体车型不再自动换车型；按能力放开帧率/码率/档位控制；全系/二代自适应默认 25 FPS；AE4 MAX 补上控制项"))
+                ]),
+                changelogSection(CWL("1.3.13（基于作者 v1.0.6）"), [
+                    (CWL("问题"), CWL("极核一代屏死绑 1024×480/484/488，AE3 Pro（1600×770）等旧栈设备选不进来；AE6 U / AE3 Pro 没有可依次尝试的协议组合")),
+                    (CWL("修改"), CWL("一代屏改「极核一代屏（自适应）」：接受仪表上报尺寸、偶数横屏，按原样编码；新增「极核全系自适应」，依次试新栈 H.264 / 新栈 JPEG / 旧栈 H.264 / 旧栈 JPEG，每组等 10 秒首帧，成功后记住组合，全失败停住；含 1.3.12 已写未编部分"))
+                ]),
+                changelogSection(CWL("1.3.12（基于作者 v1.0.6）"), [
+                    (CWL("问题"), CWL("部分新屏协商通过却迟迟没有首帧，JPEG 实验开关要手动来回切")),
+                    (CWL("修改"), CWL("H.264 协商通过 12 秒无首帧时自动改用 JPEG 重试一次；JPEG 也不行就恢复 H.264 并停住"))
+                ]),
+                changelogSection(CWL("1.3.11（基于作者 v1.0.6）"), [
+                    (CWL("问题"), CWL("协议抓包头缺车型/版本/IP/Wi-Fi，事后对不上是哪台表；部分新屏只认 JPEG")),
+                    (CWL("修改"), CWL("抓包头补齐车型/版本/本机 IP/仪表 IP/Wi-Fi；新增「媒体格式 JPEG（实验）」开关，新/旧协议栈都按它声明"))
+                ]),
+                changelogSection(CWL("1.3.10（基于作者 v1.0.6）"), [
+                    (CWL("问题"), CWL("投屏中改车型会打断会话；车型胶囊被长标题撑爆；统计显示设置帧率而非会话帧率；车型与仪表不符只能人工判断")),
+                    (CWL("修改"), CWL("投屏中改车型改为「提示 + 停止投屏」；车型胶囊字号缩小并允许缩放；统计改用会话实际帧率；不符时卡片显示一键切换；关于页加「保存当前抓包」"))
+                ]),
                 changelogSection(CWL("1.3.9（基于作者 v1.0.6）"), [
                     (CWL("问题"), CWL("旧协议栈遇到仪表新命令（0x10350 / 0x103b0）直接断连；选错车型时反复重连；名称与车型代际不清")),
                     (CWL("修改"), CWL("未知命令改为记录并继续；「不支持尺寸」纳入选错车型判定并自动切换；6.2 寸改名「极核一代屏」，AE4i 档改名「极核二代屏（自适应）」；画面行显示实际分辨率与帧率；关于页新增改版记录与最近抓包入口"))

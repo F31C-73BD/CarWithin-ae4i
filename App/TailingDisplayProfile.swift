@@ -161,7 +161,7 @@ enum TailingDisplayProfile: Equatable, Sendable {
                   reported.width >= reported.height, reported.width.isMultiple(of: 2),
                   reported.height.isMultiple(of: 2) else { return nil }
             return reported
-        case .zeehoAE4i:
+        case .zeehoAE4i, .zeehoAE4Max25:
             // 仪表上报的多半就是它自己解码缓冲区的尺寸：2048×968 是 1024×484 面板的
             // 2 倍上报。按上报尺寸原样编码，仪表放大或一比一都正确；老款 1024×480 的
             // 6.2 寸仪表选到这一项时也接受，编码时再缩到它的尺寸。

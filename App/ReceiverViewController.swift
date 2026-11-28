@@ -203,7 +203,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         AVAudioSession.sharedInstance().currentRoute.outputs.map { "\($0.portName)（\($0.portType.rawValue)）" }.joined(separator: "、")
     }
     private var selectedZeehoFrameRate: ZeehoFrameRate {
-        if outputMode == .zeehoAE4i { return selectedZeehoAE4iFrameRate }
+        if outputMode == .zeehoAE4i || outputMode == .zeehoAE4Max25 { return selectedZeehoAE4iFrameRate }
         guard outputMode == .zeehoSEPlus else { return .fps25 }
         let rates = ZeehoFrameRate.allCases
         let index = max(0, min(zeehoSEPlusFrameRateControl.selectedSegmentIndex, rates.count - 1))
@@ -246,7 +246,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
     }
     private var usesAutomaticZeehoAddress: Bool {
         if outputMode == .zeehoSEPlus { return zeehoSEPlusAutomaticSwitch.isOn }
-        return (outputMode == .zeeho || outputMode == .zeehoAE4i) && zeeho62AutomaticSwitch.isOn
+        return (outputMode == .zeeho || outputMode == .zeehoAE4i || outputMode == .zeehoAE4Max25) && zeeho62AutomaticSwitch.isOn
     }
     private var activeZeehoAddressField: UITextField {
         outputMode == .zeehoSEPlus ? zeehoSEPlusAddressField : zeehoAddressField
@@ -347,9 +347,9 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
     private let headUnitOutput = ChoiceMenu(items: HeadUnitOutput.menuOrder.map(\.title))
     private enum HeadUnitOutput: Int {
         // Persisted in headUnitOutputV2. Append new modes after existing values.
-        case browser, carLife, airPlay, tailing, ninebot, zeeho, ninebotSeven, ninebot43, zeehoSEPlus, zeehoAE2, cfmoto5, cfmoto62, cfmoto700MT, cfmoto800MT, cfmoto675SRR, benelliTRK, vogeDS800X, zontes368E, zontes368G, zontes703RR, qjSRT550, kove625X, moriniXCape1200, kove450Rally, kove800X, shouqu, zeehoAE4i, koveInstrument
+        case browser, carLife, airPlay, tailing, ninebot, zeeho, ninebotSeven, ninebot43, zeehoSEPlus, zeehoAE2, cfmoto5, cfmoto62, cfmoto700MT, cfmoto800MT, cfmoto675SRR, benelliTRK, vogeDS800X, zontes368E, zontes368G, zontes703RR, qjSRT550, kove625X, moriniXCape1200, kove450Rally, kove800X, shouqu, zeehoAE4i, koveInstrument, zeehoAE4Max25
         // Display order is independent of the persisted raw values above.
-        static let menuOrder: [Self] = [.browser, .carLife, .airPlay, .ninebot43, .ninebot, .ninebotSeven, .tailing, .zeeho, .zeehoSEPlus, .zeehoAE2, .zeehoAE4i, .cfmoto5, .cfmoto62, .cfmoto700MT, .cfmoto800MT, .cfmoto675SRR, .shouqu, .benelliTRK, .vogeDS800X, .zontes368E, .zontes368G, .zontes703RR, .qjSRT550, .kove625X, .koveInstrument, .moriniXCape1200, .kove450Rally, .kove800X]
+        static let menuOrder: [Self] = [.browser, .carLife, .airPlay, .ninebot43, .ninebot, .ninebotSeven, .tailing, .zeeho, .zeehoSEPlus, .zeehoAE2, .zeehoAE4i, .cfmoto5, .cfmoto62, .cfmoto700MT, .cfmoto800MT, .cfmoto675SRR, .shouqu, .benelliTRK, .vogeDS800X, .zontes368E, .zontes368G, .zontes703RR, .qjSRT550, .kove625X, .koveInstrument, .moriniXCape1200, .kove450Rally, .kove800X], .zeehoAE4Max25
         var menuIndex: Int { Self.menuOrder.firstIndex(of: self)! }
         var title: String {
             switch self {
@@ -361,6 +361,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
             case .ninebotSeven: return CWL("九号 7 寸")
             case .tailing: return CWL("台铃 4.3 寸")
             case .zeehoAE4i: return CWL("极核 AE4i Pro+ 6.2 寸")
+            case .zeehoAE4Max25: return CWL("极核 AE4 MAX（2025）6.2 寸")
             case .zeeho: return CWL("极核 6.2 寸")
             case .zeehoSEPlus: return CWL("极核 SE+ 5/5.5 寸")
             case .zeehoAE2: return CWL("极核 AE2 Pro 5 寸")
@@ -381,6 +382,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
             switch self {
             case .zeeho: return .zeeho62
             case .zeehoAE4i: return .zeehoAE4i
+            case .zeehoAE4Max25: return .zeehoAE4Max25
             case .zeehoAE2: return .zeehoAE2
             case .zeehoSEPlus: return .zeehoSEPlus
             default: return nil
@@ -441,7 +443,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         return HeadUnitOutput.menuOrder.indices.contains(index) ? HeadUnitOutput.menuOrder[index] : .browser
     }
     /// 仪表自己出画面时，本机预览只是额外负担：离开 App 后暂停解码，也不再开画中画。
-    private var pausesLocalPreviewWhenInactive: Bool { outputMode == .zeehoSEPlus || outputMode == .zeehoAE4i }
+    private var pausesLocalPreviewWhenInactive: Bool { outputMode == .zeehoSEPlus || outputMode == .zeehoAE4i || outputMode == .zeehoAE4Max25 }
     private let carLifeAddressField = UITextField()
     private let carLifeStatus = StatusLabel()
     private func updateCarLifeStatus(_ message: String) {
@@ -1304,7 +1306,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
     private func brand(of mode: HeadUnitOutput) -> HeadUnitBrand {
         switch mode {
         case .ninebot, .ninebotSeven, .ninebot43: return .ninebot
-        case .zeeho, .zeehoAE4i, .zeehoSEPlus, .zeehoAE2: return .zeeho
+        case .zeeho, .zeehoAE4i, .zeehoAE4Max25, .zeehoSEPlus, .zeehoAE2: return .zeeho
         case .cfmoto5, .cfmoto62, .cfmoto700MT, .cfmoto800MT, .cfmoto675SRR: return .cfmoto
         case .tailing: return .tailing
         default: return .motorcycle
@@ -1390,6 +1392,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         let target: HeadUnitOutput?
         switch sizeText {
         case "2048×968": target = .zeehoAE4i
+        case "1024×600": target = .zeehoAE4Max25
         case "1024×480", "1024×488": target = .zeehoAE2
         default: target = nil
         }
@@ -1446,6 +1449,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
     private static func model(for sizeText: String) -> HeadUnitOutput? {
         switch sizeText {
         case "2048×968": return .zeehoAE4i
+        case "1024×600": return .zeehoAE4Max25
         case "1024×480", "1024×488": return .zeehoAE2
         default: return nil
         }
@@ -1537,7 +1541,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         } else {
             bitrateChoice = CWL("自动")
         }
-        let profile = outputMode == .zeehoAE4i && selectedZeehoAE4iEncodeProfile == .main ? "Main" : "Baseline"
+        let profile = (outputMode == .zeehoAE4i || outputMode == .zeehoAE4Max25) && selectedZeehoAE4iEncodeProfile == .main ? "Main" : "Baseline"
         let meter = [meterName, meterSizeText].compactMap { $0 }.joined(separator: " · ")
         let stats = String(format: CWL("帧率 %.1f/%d · 码率 %.1f/%@ · 编码 %@"),
                            fps, target, Double(bitrate) / 1_000_000, bitrateChoice, profile)
@@ -1703,7 +1707,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
             config.zeehoProfile = profile
             config.zeehoFrameRate = selectedZeehoFrameRate
             config.zeehoVideoMode = selectedZeehoVideoMode
-            if outputMode == .zeehoAE4i {
+            if outputMode == .zeehoAE4i || outputMode == .zeehoAE4Max25 {
                 config.zeehoBitrate = selectedZeehoAE4iBitrate
                 config.zeehoEncodeProfile = selectedZeehoAE4iEncodeProfile
             } else if outputMode == .zeehoSEPlus {
@@ -3547,7 +3551,7 @@ extension ReceiverViewController {
                 if outputMode == .zeeho {
                     rows.append(.info(CWL("帧率与编码"), CWL("该型号（旧协议栈）固定 25 FPS / Baseline")))
                 }
-                if outputMode == .zeehoAE4i {
+                if outputMode == .zeehoAE4i || outputMode == .zeehoAE4Max25 {
                     rows.append(.info(CWL("画面规格"), CWL("跟随仪表上报尺寸 · 最高 2048×968 · H.264")))
                     rows.append(.control(CWL("仪表目标帧率"), icon: ("gauge.with.dots.needle.67percent", .systemGreen), zeehoAE4iFrameRateControl))
                     rows.append(.control(CWL("编码码率"), icon: ("speedometer", .systemOrange), zeehoAE4iBitrateControl))

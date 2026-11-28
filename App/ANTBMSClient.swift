@@ -33,6 +33,8 @@ final class ANTBMSClient: NSObject, CBCentralManagerDelegate, CBPeripheralDelega
     private var reader: CBCharacteristic?
     private var parser = BMSReadOnlyProtocol(family: .ant)
     private var timer: Timer?
+    /// 后台轮询节流用。
+    private var lastBackgroundTick: TimeInterval = 0
     private var reconnectWork: DispatchWorkItem?
     private var scanTimeout: DispatchWorkItem?
     private var enabled = false
@@ -80,7 +82,10 @@ final class ANTBMSClient: NSObject, CBCentralManagerDelegate, CBPeripheralDelega
         pendingSelection?.family ?? savedFamily ?? .ant
     }
     var freshReading: ANTBMSReading? {
-        guard let sample, sample.isFresh(at: ProcessInfo.processInfo.systemUptime) else { return nil }
+        // 锁屏后 iOS 会节流 BLE 通知投递，5 秒阈值太紧会导致叠加层直接冻结；
+        // 前台保持 5 秒，后台放宽到 60 秒。
+        let maximumAge: TimeInterval = UIApplication.shared.applicationState == .active ? 5 : 60
+        guard let sample, sample.isFresh(at: ProcessInfo.processInfo.systemUptime, maximumAge: maximumAge) else { return nil }
         return sample.reading
     }
     init(defaults: UserDefaults = .standard) {
@@ -363,6 +368,11 @@ final class ANTBMSClient: NSObject, CBCentralManagerDelegate, CBPeripheralDelega
     private func tick() {
         guard enabled else{return}
         let now=ProcessInfo.processInfo.systemUptime
+        // 后台降低轮询频率（前台 0.25 秒，后台约 3 秒一次），减少 BLE 唤醒与丢包。
+        if UIApplication.shared.applicationState != .active {
+            if now - lastBackgroundTick < 3.0 { return }
+            lastBackgroundTick = now
+        }
         if parser.halted {
             let message = parser.error ?? "所选板型协议不兼容，请核对配置后重试"
             automaticReconnect = false

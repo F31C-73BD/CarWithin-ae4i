@@ -114,6 +114,8 @@ enum TailingDisplayProfile: Equatable, Sendable {
     /// 2026 款极核 AE4i Pro+ 这类新一代 6.2 寸仪表：面板像素 2048×968
     /// （1024×484 的 2 倍），媒体配置阶段就上报这个尺寸。
     case zeehoAE4i
+    /// 极核 AE4 MAX（2025 款）6.2 寸：上报 1024×600，走新协议栈。
+    case zeehoAE4Max25
 
     var isZeeho: Bool { self != .tailing43 }
 
@@ -125,6 +127,7 @@ enum TailingDisplayProfile: Equatable, Sendable {
         case .zeehoSEPlus: return InstrumentFrameSize(width: 800, height: 480)
         // 按面板像素向 CarPlay 请求画面，缩放时才能一比一，不白白放大 2 倍。
         case .zeehoAE4i: return InstrumentFrameSize(width: 2048, height: 968)
+        case .zeehoAE4Max25: return InstrumentFrameSize(width: 1024, height: 600)
         }
     }
 
@@ -133,12 +136,13 @@ enum TailingDisplayProfile: Equatable, Sendable {
     var bitrateScale: Double {
         switch self {
         case .zeehoAE4i: return 6
+        case .zeehoAE4Max25: return 3
         default: return 1
         }
     }
 
     /// 2 倍屏上的文字边缘对量化很敏感，编码时优先画质而不是编码速度。
-    var prioritizesEncodingQuality: Bool { self == .zeehoAE4i }
+    var prioritizesEncodingQuality: Bool { self == .zeehoAE4i || self == .zeehoAE4Max25 }
 
     func outputSize(for reported: InstrumentFrameSize) -> InstrumentFrameSize? {
         switch self {

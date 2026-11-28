@@ -630,7 +630,8 @@ enum Zeeho62Legacy {
                 case 0x20021, 0x20031, 0x204c1, 0x20491, 0x20051, 0x20591, 0x205a1, 0x70000001:
                     continue // 回应不再回应，避免往返循环。
                 default:
-                    throw TailingError.protocolFailure(String(format: "未支持的协商命令 0x%08x", request.command))
+                    log(String(format: "未支持的协商命令 0x%08x（%d 字节，已忽略继续）", request.command, request.payload.count))
+            continue
                 }
                 try replyControl(socket, request, payload: payload)
                 if request.command == 0x20000 && !reverseStarted {

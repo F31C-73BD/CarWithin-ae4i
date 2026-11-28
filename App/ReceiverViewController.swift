@@ -362,9 +362,9 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
             case .ninebot: return CWL("九号 5 寸")
             case .ninebotSeven: return CWL("九号 7 寸")
             case .tailing: return CWL("台铃 4.3 寸")
-            case .zeehoAE4i: return CWL("极核 AE4i Pro+ 6.2 寸")
+            case .zeehoAE4i: return CWL("极核二代屏（自适应）")
             case .zeehoAE4Max25: return CWL("极核 AE4 MAX（2025）6.2 寸")
-            case .zeeho: return CWL("极核 6.2 寸")
+            case .zeeho: return CWL("极核一代屏（6.2 寸）")
             case .zeehoSEPlus: return CWL("极核 SE+ 5/5.5 寸")
             case .zeehoAE2: return CWL("极核 AE2 Pro 5 寸")
             case .cfmoto5: return CWL("春风 5 寸")
@@ -1395,6 +1395,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         switch sizeText {
         case "2048×968": target = .zeehoAE4i
         case "1024×600": target = .zeehoAE4Max25
+        case "1024×484": target = .zeehoAE4i
         case "1024×480", "1024×488": target = .zeehoAE2
         default: target = nil
         }
@@ -1412,7 +1413,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
     private func handleZeehoFailure(_ message: String) {
         // 任何极核失败都先把最近的协议收发落盘，便于事后分析。
         _ = ProtocolTrace.shared.saveOnFailure(CWL("极核失败：") + message)
-        let isMismatch = message.contains(CWL("配置不符")) || message.contains(CWL("媒体尺寸"))
+        let isMismatch = message.contains(CWL("配置不符")) || message.contains(CWL("媒体尺寸")) || message.contains(CWL("不支持尺寸"))
         guard isMismatch else {
             scheduleAutoReconnect()
             return
@@ -1454,6 +1455,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         switch sizeText {
         case "2048×968": return .zeehoAE4i
         case "1024×600": return .zeehoAE4Max25
+        case "1024×484": return .zeehoAE4i
         case "1024×480", "1024×488": return .zeehoAE2
         default: return nil
         }
@@ -3178,7 +3180,13 @@ extension ReceiverViewController {
                 SettingsSection(CWL("连接与输出"), connection),
                 SettingsSection("CarPlay", [
                     .page(CWL("画面"), icon: ("rectangle.on.rectangle", .systemGreen), detail: { [unowned self] in
-                        if self.outputMode.zeehoProfile.map({ $0 != .zeeho62 }) == true || (self.outputMode.motorcycleProfile != nil && self.outputMode.motorcycleProfile?.transport != .thinkerRide) { return "跟随仪表上报尺寸" }
+                        if self.outputMode.zeehoProfile != nil {
+                            if let size = self.meterSizeText {
+                                return size + " · " + String(self.selectedZeehoFrameRate.rawValue) + " FPS"
+                            }
+                            return CWL("跟随仪表上报尺寸")
+                        }
+                        if let motorcycle = self.outputMode.motorcycleProfile, motorcycle.transport != .thinkerRide { return CWL("跟随仪表上报尺寸") }
                         return self.outputMode.usesInstrumentWiFi ? CWL("仪表固定尺寸") : self.followsCarScreen ? CWL("跟随车机") : self.resolutionControl.selectedTitle.components(separatedBy: "（").first
                     }) { [unowned self] in self.displayPage() },
                     .control(CWL("CarPlay 外观"), icon: ("circle.lefthalf.filled", .systemBlue), appearanceControl),
@@ -3582,8 +3590,8 @@ extension ReceiverViewController {
                 switch outputMode {
                 case .zeehoAE2: name = "极核 AE2 Pro 5 寸"
                 case .zeehoSEPlus: name = "极核 AE4 SE+ 升级版 5/5.5 寸"
-                case .zeehoAE4i: name = CWL("极核 AE4i Pro+ 6.2 寸（2048×968）")
-                default: name = "极核 AE4 MAX2+ 6.2 寸"
+                case .zeehoAE4i: name = CWL("极核二代屏（自适应）")
+                default: name = "极核一代屏（6.2 寸）"
                 }
                 var rows: [SettingsRow] = []
                 rows.append(.control("自动查找仪表 IP", icon: ("network", .systemBlue), outputMode == .zeehoSEPlus ? zeehoSEPlusAutomaticSwitch : zeeho62AutomaticSwitch))
@@ -4027,9 +4035,99 @@ extension ReceiverViewController {
         page(CWL("关于")) { [unowned self] in
             [
                 SettingsSection([.view(self.aboutIdentityCard())]),
-                SettingsSection(footer: "Copyright © 2026 xmz28", self.aboutLinks() + [.info(CWL("极核 AE4i Pro+ 适配"), CWL("飞扬大大 · 大肥鱼（AI 助手）"))])
+                SettingsSection(CWL("本分支"), [
+                    .page(CWL("改版记录"), icon: ("clock.arrow.circlepath", .systemPurple)) { [unowned self] in self.changelogPage() },
+                    .action(CWL("最近一次协议抓包"), icon: ("doc.text.magnifyingglass", .systemTeal)) { [unowned self] in self.openLatestProtocolTrace() }
+                ]),
+                SettingsSection(footer: "Copyright © 2026 xmz28", self.aboutLinks() + [.info(CWL("极核适配"), CWL("飞扬大大 · 大肥鱼（AI 助手）"))])
             ]
         }
+    }
+
+    /// 本分支改版记录（问题 → 修改）。
+    fileprivate func changelogPage() -> SettingsPageController {
+        page(CWL("改版记录")) { [unowned self] in
+            [
+                changelogSection(CWL("1.3.9（基于作者 v1.0.6）"), [
+                    (CWL("问题"), CWL("旧协议栈遇到仪表新命令（0x10350 / 0x103b0）直接断连；选错车型时反复重连；名称与车型代际不清")),
+                    (CWL("修改"), CWL("未知命令改为记录并继续；「不支持尺寸」纳入选错车型判定并自动切换；6.2 寸改名「极核一代屏」，AE4i 档改名「极核二代屏（自适应）」；画面行显示实际分辨率与帧率；关于页新增改版记录与最近抓包入口"))
+                ]),
+                changelogSection(CWL("1.3.8（作者 v1.0.6）"), [
+                    (CWL("问题"), CWL("部分仪表默认 45 帧 / Main 档不兼容；自动重连计数被清零导致无限重连")),
+                    (CWL("修改"), CWL("默认帧率 25、默认 Baseline（各带一次性迁移）；修复重连计数"))
+                ]),
+                changelogSection(CWL("1.3.7"), [
+                    (CWL("问题"), CWL("AE3 Pro / AE6 U 协商通过却不拉帧，拿不到协议细节")),
+                    (CWL("修改"), CWL("新增通用协议抓包：失败或 20 秒无首帧时自动保存 protocol-fail 日志（保留 3 份，含 BMS）"))
+                ]),
+                changelogSection(CWL("1.3.6"), [
+                    (CWL("问题"), CWL("极核 AE4 MAX（2025）上报 1024×600，旧 6.2 寸档报“配置不符”")),
+                    (CWL("修改"), CWL("新增 AE4 MAX（2025）车型档，自动匹配 1024×600"))
+                ]),
+                changelogSection(CWL("1.3.5"), [
+                    (CWL("问题"), CWL("选车型要进二级页面，操作繁琐，选中后还跳回主菜单")),
+                    (CWL("修改"), CWL("车型选择改为原生下拉菜单，选中停留当前页，车型简称单行显示"))
+                ]),
+                changelogSection(CWL("1.3.4"), [
+                    (CWL("问题"), CWL("车型列表平铺，几十个车型难找")),
+                    (CWL("修改"), CWL("两级菜单：品牌 → 车型，当前项打勾"))
+                ]),
+                changelogSection(CWL("1.3.3"), [
+                    (CWL("问题"), CWL("选错车型时无限自动重连，越重连越乱")),
+                    (CWL("修改"), CWL("分辨率不匹配时自动切换车型并只重启一次；投屏断连类改为最多 3 次"))
+                ]),
+                changelogSection(CWL("1.3.2"), [
+                    (CWL("问题"), CWL("新增车型全被塞进「直接输出」")),
+                    (CWL("修改"), CWL("直接输出只留浏览器/CarLife/AirPlay；新增「摩托（实验）」分类"))
+                ]),
+                changelogSection(CWL("1.3.1"), [
+                    (CWL("问题"), CWL("仪表分辨率与所选车型不符时只能人工判断；编码器失效恢复慢")),
+                    (CWL("修改"), CWL("按上报分辨率自动匹配车型；-12903 立即重建编码器并请求关键帧"))
+                ]),
+                changelogSection(CWL("1.3.0（作者 v1.0.6 底包）"), [
+                    (CWL("问题"), CWL("上游新增安卓版与多个品牌车型，旧底包已过时")),
+                    (CWL("修改"), CWL("以官方最新 main 为底包重做，保留我们全部改动；新增春风/极核 SE+ 码率与档位可调"))
+                ]),
+                changelogSection(CWL("1.2.x（作者 v1.0.5 底包）"), [
+                    (CWL("问题"), CWL("断流、日志无处保存、全屏出不来、连不上时还显示画面")),
+                    (CWL("修改"), CWL("1.2.1 仪表识别；1.2.2 自动重连；1.2.3 5 次上限；1.2.4 日志带版本、统一“人话”提示、失败诊断摘要"))
+                ]),
+                changelogSection(CWL("1.1.x（作者 v1.0.5 底包）"), [
+                    (CWL("问题"), CWL("上游 1.0.5 不再打包 MFi 身份；菜单与日志能力不足；显示逻辑误导")),
+                    (CWL("修改"), CWL("1.1.1 身份内置；1.1.2 署名；1.1.3 拉帧重试＋两级菜单；1.1.4 直接输出；1.1.5 状态行；1.1.6 手动 IP、日志导出；1.1.7 预览门控、全屏退出；1.1.8 完整载荷、友好提示"))
+                ]),
+                changelogSection(CWL("1.0.x（作者 v1.0.4 底包）"), [
+                    (CWL("问题"), CWL("2026 款 AE4i Pro+ 上报 2048×968，原版只认 1024×480/488")),
+                    (CWL("修改"), CWL("1.0.5 新增 2048×968 输出档；1.0.7 输入诊断；1.0.8 帧率/码率/档位可调；1.0.10 增 45/50 帧"))
+                ])
+            ]
+        }
+    }
+
+    private func changelogSection(_ title: String, _ items: [(String, String)]) -> SettingsSection {
+        SettingsSection(title, items.map { .info($0.0, $0.1) })
+    }
+
+    /// 打开最近一次自动保存的协议抓包。
+    fileprivate func openLatestProtocolTrace() {
+        let manager = FileManager.default
+        guard let documents = manager.urls(for: .documentDirectory, in: .userDomainMask).first,
+              let files = try? manager.contentsOfDirectory(at: documents, includingPropertiesForKeys: nil) else {
+            alert(CWL("没有抓包"), CWL("还没有生成过协议抓包：连接失败或协商后 20 秒无首帧时会自动保存。"))
+            return
+        }
+        let traces = files
+            .filter { $0.lastPathComponent.hasPrefix("protocol-fail-") }
+            .sorted { $0.lastPathComponent > $1.lastPathComponent }
+        guard let latest = traces.first else {
+            alert(CWL("没有抓包"), CWL("还没有生成过协议抓包：连接失败或协商后 20 秒无首帧时会自动保存。"))
+            return
+        }
+        let sheet = UIActivityViewController(activityItems: [latest], applicationActivities: nil)
+        let presenter = settingsNavigation?.topViewController ?? self
+        sheet.popoverPresentationController?.sourceView = presenter.view
+        sheet.popoverPresentationController?.sourceRect = CGRect(x: presenter.view.bounds.midX, y: presenter.view.bounds.midY, width: 0, height: 0)
+        presenter.present(sheet, animated: true)
     }
 
     private func aboutIdentityCard() -> UIView {

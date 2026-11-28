@@ -1247,7 +1247,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
     // MARK: 车型选择（品牌 → 车型）、状态行、日志导出
 
     private enum HeadUnitBrand: Int, CaseIterable {
-        case ninebot, zeeho, cfmoto, tailing, other
+        case ninebot, zeeho, cfmoto, tailing, motorcycle
 
         var title: String {
             switch self {
@@ -1255,7 +1255,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
             case .zeeho: return CWL("极核")
             case .cfmoto: return CWL("春风")
             case .tailing: return CWL("台铃")
-            case .other: return CWL("其他")
+            case .motorcycle: return CWL("摩托（实验）")
             }
         }
         var symbol: String {
@@ -1263,7 +1263,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
             case .ninebot, .zeeho: return "scooter"
             case .cfmoto: return "car.fill"
             case .tailing: return "car"
-            case .other: return "globe"
+            case .motorcycle: return "bicycle"
             }
         }
         var color: UIColor {
@@ -1272,7 +1272,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
             case .zeeho: return .systemBlue
             case .cfmoto: return .systemTeal
             case .tailing: return .systemOrange
-            case .other: return .systemGray
+            case .motorcycle: return .systemPurple
             }
         }
     }
@@ -1283,7 +1283,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         case .zeeho, .zeehoAE4i, .zeehoSEPlus, .zeehoAE2: return .zeeho
         case .cfmoto5, .cfmoto62, .cfmoto700MT, .cfmoto800MT, .cfmoto675SRR: return .cfmoto
         case .tailing: return .tailing
-        default: return .other
+        default: return .motorcycle
         }
     }
 
@@ -1297,15 +1297,16 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
 
     private func modelCategoryPage() -> SettingsPageController {
         page(CWL("车型选择")) { [unowned self] in
-            let direct = HeadUnitOutput.menuOrder.filter { self.brand(of: $0) == .other }.map { mode -> SettingsRow in
+            // 直接输出：只有这三项，不再按品牌判断。
+            let directOutputs: [HeadUnitOutput] = [.browser, .carLife, .airPlay]
+            let direct = directOutputs.map { mode -> SettingsRow in
                 var row = SettingsRow.action(mode.title) { [unowned self] in self.choose(mode) }
                 row.checked = { [unowned self] in self.outputMode == mode }
                 return row
             }
             let brands = HeadUnitBrand.allCases.map { brand in
                 SettingsRow.page(brand.title, icon: (brand.symbol, brand.color), detail: { [unowned self] in
-                    guard brand != .other, self.brand(of: self.outputMode) == brand else { return nil }
-                    return self.outputMode.title
+                    self.brand(of: self.outputMode) == brand ? self.outputMode.title : nil
                 }) { [unowned self] in self.modelListPage(brand) }
             }
             return [
@@ -1319,7 +1320,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         page(brand.title) { [unowned self] in
             let directOutputs: [HeadUnitOutput] = [.browser, .carLife, .airPlay]
             let rows = HeadUnitOutput.menuOrder
-                .filter { self.brand(of: $0) == brand && !(brand == .other && directOutputs.contains($0)) }
+                .filter { self.brand(of: $0) == brand }
                 .map { mode -> SettingsRow in
                     var row = SettingsRow.action(mode.title) { [unowned self] in self.choose(mode) }
                     row.checked = { [unowned self] in self.outputMode == mode }

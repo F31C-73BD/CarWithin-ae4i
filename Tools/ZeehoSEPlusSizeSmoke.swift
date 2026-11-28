@@ -51,8 +51,16 @@ struct ZeehoSEPlusSizeSmoke {
         }
         let original = InstrumentFrameSize(width: 1024, height: 480)
         precondition(TailingDisplayProfile.zeeho62.outputSize(for: original) == original)
-        precondition(TailingDisplayProfile.zeeho62.outputSize(for: InstrumentFrameSize(width: 1024, height: 488)) == original)
-        precondition(TailingDisplayProfile.zeeho62.outputSize(for: sePlus.preferredSize) == nil)
+        let ae6 = InstrumentFrameSize(width: 1024, height: 488)
+        precondition(TailingDisplayProfile.zeeho62.outputSize(for: ae6) == ae6)
+        precondition(TailingDisplayProfile.zeeho62.outputSize(for: InstrumentFrameSize(width: 1600, height: 770))
+            == InstrumentFrameSize(width: 1600, height: 770))
+        precondition(TailingDisplayProfile.zeeho62.outputSize(for: sePlus.preferredSize) == sePlus.preferredSize)
+        for (w, h) in [(479, 480), (2049, 968), (480, 1081), (480, 800), (0, 480), (65535, 480)] {
+            precondition(TailingDisplayProfile.zeeho62.outputSize(for: InstrumentFrameSize(width: w, height: h)) == nil)
+        }
+        precondition(ZeehoAdaptiveCombo.allCases.map(\.profile) == [.zeehoAE4i, .zeehoAE4i, .zeeho62, .zeeho62])
+        precondition(ZeehoAdaptiveCombo.allCases.map(\.jpeg) == [false, true, false, true])
         let jpeg = InstrumentFrameSize(width: 480, height: 272)
         precondition(TailingDisplayProfile.tailing43.outputSize(for: jpeg) == jpeg)
         precondition(TailingDisplayProfile.tailing43.outputSize(for: original) == nil)

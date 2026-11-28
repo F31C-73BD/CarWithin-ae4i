@@ -149,8 +149,12 @@ enum TailingDisplayProfile: Equatable, Sendable {
         case .tailing43:
             return reported == preferredSize ? preferredSize : nil
         case .zeeho62:
-            guard reported.width == 1024, [480, 484, 488].contains(reported.height) else { return nil }
-            return reported.height == 484 ? reported : preferredSize
+            // 极核一代屏（自适应）：接受仪表上报尺寸（偶数、横向），按上报原样编码。
+            // AE3 Pro（1600×770）等旧栈设备也能走这一档，不再死绑 1024×480/484/488。
+            guard (480...2048).contains(reported.width), (272...1080).contains(reported.height),
+                  reported.width >= reported.height, reported.width.isMultiple(of: 2),
+                  reported.height.isMultiple(of: 2) else { return nil }
+            return reported
         case .zeehoAE2:
             guard (240...1920).contains(reported.width), (240...1080).contains(reported.height) else { return nil }
             return InstrumentFrameSize(width: reported.width & ~1, height: reported.height & ~1)
@@ -169,6 +173,41 @@ enum TailingDisplayProfile: Equatable, Sendable {
                   reported.width >= reported.height, reported.width.isMultiple(of: 2),
                   reported.height.isMultiple(of: 2) else { return nil }
             return reported
+        }
+    }
+}
+
+/// 极核「全系自适应」要依次尝试的协议组合。顺序即优先级。
+enum ZeehoAdaptiveCombo: Int, CaseIterable, Sendable {
+    /// 新协议栈 + H.264。
+    case newH264 = 0
+    /// 新协议栈 + JPEG 握手。
+    case newJPEG = 1
+    /// 旧协议栈 + H.264。
+    case legacyH264 = 2
+    /// 旧协议栈 + JPEG 握手。
+    case legacyJPEG = 3
+
+    /// 走哪套协议栈：新栈用 AE4i 档，旧栈用一代屏档（走 Zeeho62Legacy）。
+    var profile: TailingDisplayProfile {
+        switch self {
+        case .newH264, .newJPEG: return .zeehoAE4i
+        case .legacyH264, .legacyJPEG: return .zeeho62
+        }
+    }
+
+    /// 媒体协商是否声明 JPEG（仅新协议栈真正按此切换；旧栈自身固定 H.264）。
+    var jpeg: Bool { self == .newJPEG || self == .legacyJPEG }
+
+    /// 是否为旧协议栈（NativeReceiver 据此路由到 Zeeho62Legacy）。
+    var usesLegacyStack: Bool { profile == .zeeho62 }
+
+    var title: String {
+        switch self {
+        case .newH264: return CWL("新栈 H.264")
+        case .newJPEG: return CWL("新栈 JPEG")
+        case .legacyH264: return CWL("旧栈 H.264")
+        case .legacyJPEG: return CWL("旧栈 JPEG")
         }
     }
 }

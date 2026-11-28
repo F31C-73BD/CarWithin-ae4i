@@ -110,12 +110,14 @@ struct TailingTests {
         for size in [(0, 480), (800, 0), (65535, 480), (800, 65535)] {
             try rejects("不合理尺寸") { _ = try outputSize(for: .zeehoAE2, reportedWidth: size.0, reportedHeight: size.1) }
         }
-        try rejects("6.2 寸继续限制型号尺寸") {
-            _ = try outputSize(for: .zeeho62, reportedWidth: 800, reportedHeight: 480)
+        for (w, h) in [(1024, 480), (1024, 488), (800, 480), (1600, 770)] {
+            let result = try outputSize(for: .zeeho62, reportedWidth: w, reportedHeight: h)
+            try expect(result.width == w && result.height == h, "一代屏按仪表上报尺寸原样编码")
         }
-        let legacy = try outputSize(for: .zeeho62, reportedWidth: 1024, reportedHeight: 488)
-        try expect(legacy.height == 480, "保留 6.2 寸的 488 到 480 映射")
-        print("PASS: AE2 协商尺寸与旧型号边界")
+        for (w, h) in [(0, 480), (479, 480), (2049, 968), (480, 1081), (480, 800), (65535, 480)] {
+            try rejects("不合理尺寸") { _ = try outputSize(for: .zeeho62, reportedWidth: w, reportedHeight: h) }
+        }
+        print("PASS: AE2 协商尺寸与一代屏自适应边界")
     }
 
     private static func identity() throws {
@@ -156,7 +158,7 @@ struct TailingTests {
                                             reported: InstrumentFrameSize? = nil, expected: InstrumentFrameSize? = nil) throws {
         FileHandle.standardError.write(Data("Testing instrument profile: \(profile)\n".utf8))
         let panel = reported ?? (profile == .zeeho62 ? InstrumentFrameSize(width: 1024, height: 488) : profile.preferredSize)
-        let expectedSize = expected ?? profile.preferredSize
+        let expectedSize = expected ?? (profile == .zeeho62 ? panel : profile.preferredSize)
         let announcement = try TailingSocket.listening(localIP: "127.0.0.1", port: 0)
         defer { announcement.close() }
         let reservations = try (0..<3).map { _ in try TailingSocket.listening(localIP: "127.0.0.1", port: 0) }

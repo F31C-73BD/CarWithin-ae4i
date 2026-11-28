@@ -273,6 +273,11 @@ final class ProtocolTrace: @unchecked Sendable {
         lock.unlock()
     }
 
+    /// 只更新环境头，不清空已记录内容。
+    func setContext(_ text: String) {
+        lock.lock(); header = text; lock.unlock()
+    }
+
     func record(direction: String, port: UInt16, data: Data) {
         guard !data.isEmpty else { return }
         // 视频帧很大：只记长度，避免把控制消息挤出缓冲。

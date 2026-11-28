@@ -30,6 +30,12 @@ struct ReceiverConfiguration {
     var zeehoAutomaticAddress = false
     var zeehoProfile: TailingDisplayProfile = .zeeho62
     var zeehoFrameRate: ZeehoFrameRate = .fps25
+
+    /// 实验：媒体协商时声明 JPEG 而不是 H.264（部分新屏可能只认 JPEG）。
+    static var zeehoJPEGHandshake: Bool {
+        get { UserDefaults.standard.bool(forKey: "zeehoJPEGHandshake") }
+        set { UserDefaults.standard.set(newValue, forKey: "zeehoJPEGHandshake") }
+    }
     var zeehoVideoMode: ZeehoVideoMode = .transcode
     /// 新一代 6.2 寸（AE4i Pro+）可单独调的码率与 H.264 档位。
     var zeehoBitrate: ZeehoBitrate = .auto

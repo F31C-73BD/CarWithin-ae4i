@@ -455,7 +455,7 @@ final class TailingConnection: @unchecked Sendable {
                 }
                 mediaSize = size
                 condition.unlock()
-                payload = TailingProtocol.mediaConfiguration(size: size, h264: isZeeho)
+                payload = TailingProtocol.mediaConfiguration(size: size, h264: isZeeho && !ReceiverConfiguration.zeehoJPEGHandshake)
                 response = 0x11
                 log("媒体身份回显校验通过，仪表报告 \(reported)，回应 \(isZeeho ? "H.264" : "JPEG") / \(size)")
             case 0x70:

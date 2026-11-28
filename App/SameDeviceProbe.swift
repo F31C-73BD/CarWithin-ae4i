@@ -27,6 +27,9 @@ final class SameDeviceProbe {
         stop(); active = true; self.identity = identity; self.configuration = configuration
         self.expectsLocalControl = expectsLocalControl
         let run = generation
+        // 诊断：不同 iOS 版本的 CoreAccessories 私有方法可能不同，把清单记进日志。
+        onLog?(CWL("本机配件传输诊断（iOS {1}）：{2}", [UIDevice.current.systemVersion,
+            DirectAccessoryTransport.coreAccessoriesDiagnostics()]))
         transport.onData = { [weak self] data in self?.receive(data) }
         do {
             // Use transport type 2 for a Wi-Fi accessory connection.
@@ -63,6 +66,12 @@ final class SameDeviceProbe {
     }
     private func requestSession(_ configuration: ReceiverConfiguration) throws {
         let wifi = try AccessoryMessages.WiFi(ssid: configuration.ssid, password: configuration.password, channel: configuration.wifiChannel)
+        // 诊断：把发给 iPhone 的 CarPlay 启动参数记下来，便于对比不同 iOS 版本。
+        onLog?(CWL("CarPlay 启动请求：本机 {1}:{2} · Wi-Fi「{3}」· 通道 {4} · deviceID {5} · 密码 {6} 位", [
+            String(describing: configuration.address), String(describing: configuration.port),
+            configuration.ssid, String(describing: configuration.wifiChannel),
+            String(describing: configuration.deviceID), String(describing: configuration.password.count)
+        ]))
         try send(AccessoryMessages.startSession(address: configuration.address, port: configuration.port,
             deviceID: configuration.deviceID, wifi: wifi))
     }

@@ -101,4 +101,29 @@ static BOOL HasMethod(id object, NSString *name, NSUInteger arguments) {
     self.endpoint = nil; self.connection = nil; self.client = nil;
 }
 - (void)dealloc { [self stop]; }
+
++ (NSString *)coreAccessoriesDiagnostics {
+    NSMutableString *out = [NSMutableString string];
+    Class cls = NSClassFromString(@"ACCTransportClient");
+    if (!cls) {
+        [[NSBundle bundleWithPath:@"/System/Library/PrivateFrameworks/CoreAccessories.framework"] load];
+        cls = NSClassFromString(@"ACCTransportClient");
+    }
+    if (!cls) return @"CoreAccessories: ACCTransportClient 不存在";
+    unsigned int count = 0;
+    Method *methods = class_copyMethodList(cls, &count);
+    [out appendFormat:@"ACCTransportClient 共 %u 个方法\n", count];
+    NSInteger shown = 0;
+    for (unsigned int i = 0; i < count; i++) {
+        NSString *name = NSStringFromSelector(method_getName(methods[i]));
+        BOOL interesting = [name hasPrefix:@"create"] || [name hasPrefix:@"process"] || [name hasPrefix:@"destroy"] ||
+                           [name hasPrefix:@"publish"] || [name hasPrefix:@"shared"] || [name hasPrefix:@"endpoint"] ||
+                           [name hasPrefix:@"connection"] || [name hasPrefix:@"attach"];
+        if (!interesting) continue;
+        [out appendFormat:@"  %@（%u 参数）\n", name, (unsigned)method_getNumberOfArguments(methods[i])];
+        if (++shown >= 80) { [out appendString:@"  …（已截断）\n"]; break; }
+    }
+    free(methods);
+    return out;
+}
 @end

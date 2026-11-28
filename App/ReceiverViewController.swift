@@ -1,4 +1,5 @@
 import UIKit
+import Darwin
 import SwiftUI
 import Combine
 import AVKit
@@ -1534,6 +1535,15 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
             .replacingOccurrences(of: "X", with: "×")
     }
 
+    /// 硬件标识（如 iPhone14,5），用于区分同系统的不同机型。
+    private static func hardwareIdentifier() -> String {
+        var info = utsname()
+        uname(&info)
+        return withUnsafeBytes(of: &info.machine) { raw in
+            String(decoding: raw.prefix { $0 != 0 }, as: UTF8.self)
+        }
+    }
+
     /// 分辨率 → 车型。
     private static func model(for sizeText: String) -> HeadUnitOutput? {
         switch sizeText {
@@ -2301,6 +2311,8 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
             }
             startButton.isEnabled = true
             statusLabel.text = CWL("可以开始连接")
+            log(CWL("系统：{1} {2} · {3} · 机型标识 {4}", [UIDevice.current.systemName, UIDevice.current.systemVersion,
+                UIDevice.current.model, Self.hardwareIdentifier()]))
         } catch {
             identity = nil
             statusLabel.text = CWL("尚未导入有效的 MFi 身份"); startButton.isEnabled = false
@@ -4301,6 +4313,10 @@ extension ReceiverViewController {
     fileprivate func changelogPage() -> SettingsPageController {
         page(CWL("改版记录")) { [unowned self] in
             [
+                changelogSection(CWL("1.3.17（基于作者 v1.0.6）"), [
+                    (CWL("问题"), CWL("iOS 16 用户反馈「启动本机 CarPlay」连不上、仪表不出画；日志里 iAP2 认证通过但没有 SETUP/RECORD")),
+                    (CWL("修改"), CWL("仅增加诊断日志：启动时记录系统版本/机型标识、配件传输诊断（CoreAccessories 私有方法清单）、CarPlay 启动请求载荷（Wi-Fi/地址/端口）"))
+                ]),
                 changelogSection(CWL("1.3.16（基于作者 v1.0.6）"), [
                     (CWL("问题"), CWL("自适应档固定按 2048×968 源画布，1024×600 / 1024×488 的仪表被缩放变形；没有 AE5i Pro 档；旧栈把 1024×488 回成 480（AE4 Pro 不拉帧）；AE8 MY25 不认「只发开始投屏」；JPEG 文案写「新屏」不准")),
                     (CWL("修改"), CWL("全系/一代/二代自适应源画布按上报尺寸自动匹配（1:1）；新增「极核 AE5i Pro（2025）」「极核 AE4 Pro（2025）」「极核 AE8 MY25」车型档 + 识别；旧栈 488 原样回；仪表回「不支持」时补发完整握手；JPEG 文案改「部分旧屏只认 JPEG」"))

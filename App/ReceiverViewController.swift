@@ -69,7 +69,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         // 仪表 Wi-Fi 模式（极核/台铃/九号/春风/摩托）保留用户的「随画面传输」选择，不再强制「由 iPhone 输出」。
         if outputMode == .carLife || outputMode == .airPlay { return .phone }
         if selectedSoundOutput == .carWithin && !receivesAudioFromAnotherDevice { return .phone }
-        if selectedSoundOutput == .browser && !videoOutputSwitch.isOn { return .phone }
+        if selectedSoundOutput == .browser && !videoOutputSwitch.isOn && outputMode == .browser { return .phone }
         return selectedSoundOutput
     }
     private let videoOutputSwitch = UISwitch()
@@ -2414,7 +2414,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
             }
             var config = ReceiverConfiguration(name: nameField.text ?? "CarWithin", address: address,
                 ssid: ssidField.text ?? "", password: password, wifiChannel: channel,
-                audioEnabled: soundOutput != .phone || outputMode.zeehoProfile != nil,
+                audioEnabled: soundOutput != .phone,
                 videoOutputPort: outputPort, secureVideoOutputPort: httpsPort,
                 deviceID: ReceiverConfiguration.persistentDeviceID())
             if !restartingAutomatically { autoRestarts = 0; lightLevel = 0; reportedScreen = nil; primaryViewer = nil }
@@ -2458,7 +2458,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         let addresses = ReceiverConfiguration.localIPv4Addresses()
         if !addresses.contains(ipField.text ?? "") { ipField.text = browserAddress ?? addresses.first }
         var config = ReceiverConfiguration(name: nameField.text ?? "CarWithin", address: ipField.text ?? "",
-            ssid: ssidField.text ?? "", password: password, wifiChannel: channel, audioEnabled: soundOutput != .phone || outputMode.zeehoProfile != nil,
+            ssid: ssidField.text ?? "", password: password, wifiChannel: channel, audioEnabled: soundOutput != .phone,
             videoOutputPort: outputPort, secureVideoOutputPort: httpsPort,
             deviceID: ReceiverConfiguration.persistentDeviceID())
         configureDisplay(&config)
@@ -3625,19 +3625,11 @@ extension ReceiverViewController {
 
     fileprivate func soundPage() -> SettingsPageController {
         page(CWL("声音")) { [unowned self] in
-            guard outputMode == .browser else {
-                let phone = SoundOutput.phone
-                return [SettingsSection(footer: phone.explanation + " 停止 CarPlay 后普通音乐仍无声时，先在这里或控制中心选中耳机，并检查媒体音量。", [
-                    .info(CWL("声音输出"), CWL("由 iPhone 输出")),
-                    .info("当前声音路由", audioRouteDescription),
-                    .control("选择耳机或扬声器", icon: ("headphones", .systemOrange), audioRoutePicker)
-                ])]
-            }
             let choices = SoundOutput.allCases.filter { output in
                 switch output {
                 case .carWithin: return receivesAudioFromAnotherDevice
                 case .phone: return true
-                case .browser: return videoOutputSwitch.isOn
+                case .browser: return true
                 }
             }
             let rows = choices.map { output in
@@ -3654,10 +3646,21 @@ extension ReceiverViewController {
                 row.checked = { [unowned self] in self.soundOutput == output }
                 return row
             }
-            let footer = videoOutputSwitch.isOn
-                ? CWL("更改在下次启动 CarPlay 时生效。使用 Wi-Fi 伴音时，通话和 Siri 留在 iPhone。")
-                : CWL("打开局域网接收页后可使用 Wi-Fi 伴音。更改在下次启动 CarPlay 时生效。")
-            return [SettingsSection(footer: footer, rows)]
+            let footer: String
+            if outputMode == .browser {
+                footer = videoOutputSwitch.isOn
+                    ? CWL("更改在下次启动 CarPlay 时生效。使用 Wi-Fi 伴音时，通话和 Siri 留在 iPhone。")
+                    : CWL("打开局域网接收页后可使用 Wi-Fi 伴音。更改在下次启动 CarPlay 时生效。")
+            } else {
+                footer = CWL("仪表没有扬声器时建议选「随画面传输（Wi-Fi）」。个别车机或系统（如 iOS 16）在「由 iPhone 输出」时会在媒体协商阶段断开投屏，遇到就换成「随画面传输」。更改在下次启动 CarPlay 时生效。")
+            }
+            return [
+                SettingsSection(footer: footer, rows),
+                SettingsSection(footer: CWL("当前声音路由与耳机选择。"), [
+                    .info("当前声音路由", audioRouteDescription),
+                    .control("选择耳机或扬声器", icon: ("headphones", .systemOrange), audioRoutePicker)
+                ])
+            ]
         }
     }
 
@@ -4326,7 +4329,7 @@ extension ReceiverViewController {
             [
                 changelogSection(CWL("1.3.17（基于作者 v1.0.6）"), [
                     (CWL("问题"), CWL("iOS 16 用户反馈「启动本机 CarPlay」连不上、仪表不出画；iAP2 认证通过但没有 SETUP/RECORD。极核模式被强制「由 iPhone 输出」→ CarPlay 只协商视频、不带音频，iOS 16 建不起来")),
-                    (CWL("修改"), CWL("默认声音改为「随画面传输（Wi-Fi）」（老安装自动迁移），极核模式默认 audioEnabled=true，iOS 16 可正常启动；去掉仪表模式的声音强制，允许手动切换；另加诊断日志：系统版本/机型标识、CoreAccessories 私有方法清单、CarPlay 启动请求载荷"))
+                    (CWL("修改"), CWL("声音页在仪表模式下也显示「由 iPhone 输出 / 随画面传输（Wi-Fi）」两个可选项并真正生效；默认「随画面传输」（老安装自动迁移）；另加诊断日志：系统版本/机型标识、CoreAccessories 私有方法清单、CarPlay 启动请求载荷"))
                 ]),
                 changelogSection(CWL("1.3.16（基于作者 v1.0.6）"), [
                     (CWL("问题"), CWL("自适应档固定按 2048×968 源画布，1024×600 / 1024×488 的仪表被缩放变形；没有 AE5i Pro 档；旧栈把 1024×488 回成 480（AE4 Pro 不拉帧）；AE8 MY25 不认「只发开始投屏」；JPEG 文案写「新屏」不准")),

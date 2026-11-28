@@ -176,6 +176,10 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
     /// 防止失败通知与看门狗同时推进组合，导致跳过某一组。
     var zeehoAdaptiveAdvancing = false
     static let zeehoAdaptiveBestComboKey = "zeehoAdaptiveBestCombo"
+    /// 自适应档（全系/一代/二代）自动匹配的源画布尺寸；nil = 用 profile 默认。
+    var zeehoAdaptiveSourceSize: InstrumentFrameSize?
+    /// 本次会话是否已自动匹配过源画布（防反复重启）。
+    var zeehoAdaptiveAutoMatched = false
     var waitsForExternalOutput: Bool {
         outputMode != .browser && outputMode != .carLife && outputMode != .airPlay
     }
@@ -218,7 +222,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         AVAudioSession.sharedInstance().currentRoute.outputs.map { "\($0.portName)（\($0.portType.rawValue)）" }.joined(separator: "、")
     }
     private var selectedZeehoFrameRate: ZeehoFrameRate {
-        if outputMode == .zeehoAE4i || outputMode == .zeehoAE4Max25 || outputMode == .zeehoAdaptive { return selectedZeehoAE4iFrameRate }
+        if outputMode == .zeehoAE4i || outputMode == .zeehoAE4Max25 || outputMode == .zeehoAdaptive || outputMode == .zeehoAE5iPro || outputMode == .zeehoAE4Pro || outputMode == .zeehoAE8 { return selectedZeehoAE4iFrameRate }
         guard outputMode == .zeehoSEPlus else { return .fps25 }
         let rates = ZeehoFrameRate.allCases
         let index = max(0, min(zeehoSEPlusFrameRateControl.selectedSegmentIndex, rates.count - 1))
@@ -261,7 +265,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
     }
     private var usesAutomaticZeehoAddress: Bool {
         if outputMode == .zeehoSEPlus { return zeehoSEPlusAutomaticSwitch.isOn }
-        return (outputMode == .zeeho || outputMode == .zeehoAE4i || outputMode == .zeehoAE4Max25 || outputMode == .zeehoAdaptive) && zeeho62AutomaticSwitch.isOn
+        return (outputMode == .zeeho || outputMode == .zeehoAE4i || outputMode == .zeehoAE4Max25 || outputMode == .zeehoAdaptive || outputMode == .zeehoAE5iPro || outputMode == .zeehoAE4Pro || outputMode == .zeehoAE8) && zeeho62AutomaticSwitch.isOn
     }
     private var activeZeehoAddressField: UITextField {
         outputMode == .zeehoSEPlus ? zeehoSEPlusAddressField : zeehoAddressField
@@ -362,9 +366,9 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
     private let headUnitOutput = ChoiceMenu(items: HeadUnitOutput.menuOrder.map(\.title))
     private enum HeadUnitOutput: Int {
         // Persisted in headUnitOutputV2. Append new modes after existing values.
-        case browser, carLife, airPlay, tailing, ninebot, zeeho, ninebotSeven, ninebot43, zeehoSEPlus, zeehoAE2, cfmoto5, cfmoto62, cfmoto700MT, cfmoto800MT, cfmoto675SRR, benelliTRK, vogeDS800X, zontes368E, zontes368G, zontes703RR, qjSRT550, kove625X, moriniXCape1200, kove450Rally, kove800X, shouqu, zeehoAE4i, koveInstrument, zeehoAE4Max25, zeehoAdaptive
+        case browser, carLife, airPlay, tailing, ninebot, zeeho, ninebotSeven, ninebot43, zeehoSEPlus, zeehoAE2, cfmoto5, cfmoto62, cfmoto700MT, cfmoto800MT, cfmoto675SRR, benelliTRK, vogeDS800X, zontes368E, zontes368G, zontes703RR, qjSRT550, kove625X, moriniXCape1200, kove450Rally, kove800X, shouqu, zeehoAE4i, koveInstrument, zeehoAE4Max25, zeehoAdaptive, zeehoAE5iPro, zeehoAE4Pro, zeehoAE8
         // Display order is independent of the persisted raw values above.
-        static let menuOrder: [Self] = [.browser, .carLife, .airPlay, .ninebot43, .ninebot, .ninebotSeven, .tailing, .zeehoAdaptive, .zeeho, .zeehoSEPlus, .zeehoAE2, .zeehoAE4i, .cfmoto5, .cfmoto62, .cfmoto700MT, .cfmoto800MT, .cfmoto675SRR, .shouqu, .benelliTRK, .vogeDS800X, .zontes368E, .zontes368G, .zontes703RR, .qjSRT550, .kove625X, .koveInstrument, .moriniXCape1200, .kove450Rally, .kove800X, .zeehoAE4Max25]
+        static let menuOrder: [Self] = [.browser, .carLife, .airPlay, .ninebot43, .ninebot, .ninebotSeven, .tailing, .zeehoAdaptive, .zeeho, .zeehoSEPlus, .zeehoAE2, .zeehoAE4i, .zeehoAE5iPro, .zeehoAE4Pro, .zeehoAE8, .cfmoto5, .cfmoto62, .cfmoto700MT, .cfmoto800MT, .cfmoto675SRR, .shouqu, .benelliTRK, .vogeDS800X, .zontes368E, .zontes368G, .zontes703RR, .qjSRT550, .kove625X, .koveInstrument, .moriniXCape1200, .kove450Rally, .kove800X, .zeehoAE4Max25]
         var menuIndex: Int { Self.menuOrder.firstIndex(of: self)! }
         var title: String {
             switch self {
@@ -377,6 +381,9 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
             case .tailing: return CWL("台铃 4.3 寸")
             case .zeehoAdaptive: return CWL("极核全系自适应")
             case .zeehoAE4i: return CWL("极核二代屏（自适应）")
+            case .zeehoAE5iPro: return CWL("极核 AE5i Pro（2025）")
+            case .zeehoAE4Pro: return CWL("极核 AE4 Pro（2025）")
+            case .zeehoAE8: return CWL("极核 AE8 MY25")
             case .zeehoAE4Max25: return CWL("极核 AE4 MAX（2025）6.2 寸")
             case .zeeho: return CWL("极核一代屏（自适应）")
             case .zeehoSEPlus: return CWL("极核 SE+ 5/5.5 寸")
@@ -402,6 +409,9 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
             case .zeehoAE2: return .zeehoAE2
             case .zeehoSEPlus: return .zeehoSEPlus
             case .zeehoAdaptive: return .zeehoAE4i
+            case .zeehoAE5iPro: return .zeehoAE4i
+            case .zeehoAE4Pro: return .zeehoAE4i
+            case .zeehoAE8: return .zeehoAE4i
             default: return nil
             }
         }
@@ -430,7 +440,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         /// 是否支持在 App 内调帧率/码率/编码档位。旧协议栈固定 25 FPS / Baseline；AE2 新栈但固定 auto/baseline。
         var supportsZeehoEncodingControls: Bool {
             switch self {
-            case .zeehoAE4i, .zeehoAE4Max25, .zeehoAdaptive: return true
+            case .zeehoAE4i, .zeehoAE4Max25, .zeehoAdaptive, .zeehoAE5iPro, .zeehoAE4Pro, .zeehoAE8: return true
             default: return false
             }
         }
@@ -467,7 +477,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         return HeadUnitOutput.menuOrder.indices.contains(index) ? HeadUnitOutput.menuOrder[index] : .browser
     }
     /// 仪表自己出画面时，本机预览只是额外负担：离开 App 后暂停解码，也不再开画中画。
-    private var pausesLocalPreviewWhenInactive: Bool { outputMode == .zeehoSEPlus || outputMode == .zeehoAE4i || outputMode == .zeehoAE4Max25 || outputMode == .zeehoAdaptive }
+    private var pausesLocalPreviewWhenInactive: Bool { outputMode == .zeehoSEPlus || outputMode == .zeehoAE4i || outputMode == .zeehoAE4Max25 || outputMode == .zeehoAdaptive || outputMode == .zeehoAE5iPro || outputMode == .zeehoAE4Pro || outputMode == .zeehoAE8 }
     private let carLifeAddressField = UITextField()
     private let carLifeStatus = StatusLabel()
     private func updateCarLifeStatus(_ message: String) {
@@ -718,7 +728,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         jpegRow.alignment = .center
         jpegRow.spacing = 8
         let jpegLabel = UILabel()
-        jpegLabel.text = CWL("媒体格式 JPEG（实验，部分新屏只认 JPEG）")
+        jpegLabel.text = CWL("媒体格式 JPEG（实验，部分旧屏只认 JPEG）")
         jpegLabel.font = .preferredFont(forTextStyle: .footnote)
         jpegLabel.textColor = .secondaryLabel
         jpegLabel.numberOfLines = 0
@@ -1108,7 +1118,10 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         }
         if let profile = outputMode.zeehoProfile {
             let icon = ReceiverConfiguration.iconSizes[max(0, iconSizeControl.selectedSegmentIndex)].widthMM
-            let size = profile == .zeehoSEPlus ? selectedZeehoCanvas.size : profile.preferredSize
+            // 全系自适应 / 一代屏 / 二代屏 / AE5i Pro：仪表上报尺寸后自动用上报尺寸做源画布，保证 1:1。
+            let adaptive = outputMode == .zeehoAdaptive || outputMode == .zeeho || outputMode == .zeehoAE4i || outputMode == .zeehoAE5iPro || outputMode == .zeehoAE4Pro || outputMode == .zeehoAE8
+            let size = (adaptive ? zeehoAdaptiveSourceSize : nil)
+                ?? (profile == .zeehoSEPlus ? selectedZeehoCanvas.size : profile.preferredSize)
             return DisplayPlan(width: size.width, height: size.height, fps: selectedZeehoFrameRate.sourceFPS,
                                codec: .h264, iconWidthMM: icon)
         }
@@ -1347,7 +1360,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
     private func brand(of mode: HeadUnitOutput) -> HeadUnitBrand {
         switch mode {
         case .ninebot, .ninebotSeven, .ninebot43: return .ninebot
-        case .zeeho, .zeehoAE4i, .zeehoAE4Max25, .zeehoSEPlus, .zeehoAE2, .zeehoAdaptive: return .zeeho
+        case .zeeho, .zeehoAE4i, .zeehoAE4Max25, .zeehoSEPlus, .zeehoAE2, .zeehoAdaptive, .zeehoAE5iPro, .zeehoAE4Pro, .zeehoAE8: return .zeeho
         case .cfmoto5, .cfmoto62, .cfmoto700MT, .cfmoto800MT, .cfmoto675SRR: return .cfmoto
         case .tailing: return .tailing
         default: return .motorcycle
@@ -1602,6 +1615,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
                 meterSizeText = text
                 changed = true
                 refreshModelMismatchHint()
+                autoMatchAdaptiveSourceSize(text)
                 if text == "2048×968", outputMode.zeehoProfile != nil, outputMode != .zeehoAE4i, outputMode != .zeehoAdaptive, !running {
                     log(CWL("检测到仪表上报 2048×968，建议在「输出设置 → 车型选择」里选择「极核 AE4i Pro+ 6.2 寸」。"))
                 }
@@ -1610,16 +1624,42 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         if changed { reloadVisibleSettings() }
     }
 
+    /// 全系/一代/二代/AE5i Pro：仪表上报尺寸后，自动把源画布匹配成上报尺寸（1:1），必要时重启一次。
+    private func autoMatchAdaptiveSourceSize(_ sizeText: String) {
+        let adaptive = outputMode == .zeehoAdaptive || outputMode == .zeeho || outputMode == .zeehoAE4i || outputMode == .zeehoAE5iPro || outputMode == .zeehoAE4Pro || outputMode == .zeehoAE8
+        guard adaptive, !zeehoAdaptiveAutoMatched, let reported = Self.parseFrameSize(sizeText) else { return }
+        zeehoAdaptiveAutoMatched = true
+        // 一代屏走旧协议栈，固定 1024 宽；480/484/488 原样输出，源画布跟着上报高度即可。
+        let target: InstrumentFrameSize
+        if outputMode == .zeeho {
+            target = InstrumentFrameSize(width: 1024, height: reported.height)
+        } else {
+            target = reported
+        }
+        let current = zeehoAdaptiveSourceSize ?? outputMode.zeehoProfile?.preferredSize
+        guard target != current else { return }
+        zeehoAdaptiveSourceSize = target
+        log(CWL("自适应源画布自动匹配为 {1}，重启一次让画面 1:1", [target.description]))
+        guard running else { return }
+        stop()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard let self, !self.running else { return }
+            self.restartingAutomatically = true
+            self.toggleReceiver()
+            self.restartingAutomatically = false
+        }
+    }
+
     private func updateZeehoStats(fps: Double, bitrate: Int) {
         let target = activeZeehoFrameRate.rawValue
         let bitrateChoice: String
-        if outputMode == .zeehoAE4i || outputMode == .zeehoAE4Max25 || outputMode == .zeehoAdaptive {
+        if outputMode == .zeehoAE4i || outputMode == .zeehoAE4Max25 || outputMode == .zeehoAdaptive || outputMode == .zeehoAE5iPro || outputMode == .zeehoAE4Pro || outputMode == .zeehoAE8 {
             let option = selectedZeehoAE4iBitrate
             bitrateChoice = option == .auto ? CWL("自动") : "\(option.rawValue) Mbit/s"
         } else {
             bitrateChoice = CWL("自动")
         }
-        let profile = (outputMode == .zeehoAE4i || outputMode == .zeehoAE4Max25 || outputMode == .zeehoAdaptive) && selectedZeehoAE4iEncodeProfile == .main ? "Main" : "Baseline"
+        let profile = (outputMode == .zeehoAE4i || outputMode == .zeehoAE4Max25 || outputMode == .zeehoAdaptive || outputMode == .zeehoAE5iPro || outputMode == .zeehoAE4Pro || outputMode == .zeehoAE8) && selectedZeehoAE4iEncodeProfile == .main ? "Main" : "Baseline"
         let meter = [meterName, meterSizeText].compactMap { $0 }.joined(separator: " · ")
         let meterText = meter.isEmpty ? "" : meter + (recognizedZeehoModel.map { " · 识别：" + $0 } ?? "")
         let stats = String(format: CWL("帧率 %.1f/%d · 码率 %.1f/%@ · 编码 %@"),
@@ -1634,6 +1674,15 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
             if name.hasPrefix("CFDL29-F200") { return CWL("极核二代屏（AE4i Pro+）") }
             if name.hasPrefix("CFDL29-FE4V") { return CWL("极核 AE3 Pro") }
             if name.hasPrefix("CFDL29-FB71") { return CWL("极核 AE6 U") }
+            // ZEEHO-xxxxxx 系列按上报尺寸识别（同尺寸的 AE4 Pro / AE5i Pro 合并显示）。
+            if name.range(of: "^ZEEHO-[A-Fa-f0-9]{6}$", options: .regularExpression) != nil {
+                switch meterSizeText {
+                case "1024×488": return CWL("极核 AE4 Pro / AE5i Pro（2025）")
+                case "1024×600": return CWL("极核 AE4 MAX（2025）")
+                case "1280×675": return CWL("极核 AE8 MY25")
+                default: break
+                }
+            }
         }
         switch meterSizeText {
         case "2048×968": return CWL("极核二代屏（AE4i Pro+）")
@@ -1910,7 +1959,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
                 config.zeehoFrameRate = selectedZeehoFrameRate
                 activeZeehoFrameRate = config.zeehoFrameRate
                 config.zeehoVideoMode = selectedZeehoVideoMode
-                if outputMode == .zeehoAE4i || outputMode == .zeehoAE4Max25 {
+                if outputMode == .zeehoAE4i || outputMode == .zeehoAE4Max25 || outputMode == .zeehoAE5iPro {
                     config.zeehoBitrate = selectedZeehoAE4iBitrate
                     config.zeehoEncodeProfile = selectedZeehoAE4iEncodeProfile
                 } else if outputMode == .zeehoSEPlus {
@@ -2273,6 +2322,8 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         if !restartingAutomatically {
             networkRestartCount = 0
             if outputMode == .zeehoAdaptive { zeehoAdaptiveAttemptIndex = savedZeehoAdaptiveComboIndex() ?? 0 }
+            // 手动启动：允许重新做一次源画布自动匹配（匹配尺寸保留，切换到的目标一致时不会重启）。
+            zeehoAdaptiveAutoMatched = false
         }
         clearStartupHint()
         updateCheckTask?.cancel()
@@ -2872,7 +2923,7 @@ extension ReceiverViewController {
         let brands: [(String, [HeadUnitOutput])] = [
             (CWL("九号"), [.ninebot43, .ninebot, .ninebotSeven]),
             (CWL("台铃"), [.tailing]),
-            (CWL("极核"), [.zeehoAdaptive, .zeeho, .zeehoSEPlus, .zeehoAE2, .zeehoAE4i]),
+            (CWL("极核"), [.zeehoAdaptive, .zeeho, .zeehoSEPlus, .zeehoAE2, .zeehoAE4i, .zeehoAE5iPro, .zeehoAE4Pro, .zeehoAE8]),
             (CWL("春风"), [.cfmoto5, .cfmoto62, .cfmoto700MT, .cfmoto800MT, .cfmoto675SRR]),
             (CWL("首驱"), [.shouqu]),
             (CWL("贝纳利"), [.benelliTRK]), (CWL("无极"), [.vogeDS800X]),
@@ -3150,6 +3201,8 @@ extension ReceiverViewController {
         meterSizeText = nil
         zeehoStatsLabel.text = nil
         zeehoStatsLabel.isHidden = true
+        zeehoAdaptiveSourceSize = nil
+        zeehoAdaptiveAutoMatched = false
         updateConnectionCardTitle()
         saveMotorcycleAddress()
         motorcycleScanGeneration += 1; motorcycleScanner?.stop(); motorcycleScanner = nil
@@ -3778,7 +3831,7 @@ extension ReceiverViewController {
             case .carLife: return carLifeOutputSections()
             case .airPlay: return airPlayOutputSections()
             case .tailing: return tailingOutputSections()
-            case .zeeho, .zeehoAE4i, .zeehoSEPlus, .zeehoAE2, .zeehoAdaptive, .zeehoAE4Max25:
+            case .zeeho, .zeehoAE4i, .zeehoSEPlus, .zeehoAE2, .zeehoAdaptive, .zeehoAE4Max25, .zeehoAE5iPro, .zeehoAE4Pro, .zeehoAE8:
                 let name: String
                 switch outputMode {
                 case .zeehoAE2: name = "极核 AE2 Pro 5 寸"
@@ -3786,6 +3839,9 @@ extension ReceiverViewController {
                 case .zeehoAE4i: name = CWL("极核二代屏（自适应）")
                 case .zeehoAE4Max25: name = CWL("极核 AE4 MAX（2025）6.2 寸")
                 case .zeehoAdaptive: name = CWL("极核全系自适应")
+                case .zeehoAE5iPro: name = CWL("极核 AE5i Pro（2025）")
+                case .zeehoAE4Pro: name = CWL("极核 AE4 Pro（2025）")
+                case .zeehoAE8: name = CWL("极核 AE8 MY25")
                 default: name = CWL("极核一代屏（自适应）")
                 }
                 var rows: [SettingsRow] = []
@@ -4245,6 +4301,10 @@ extension ReceiverViewController {
     fileprivate func changelogPage() -> SettingsPageController {
         page(CWL("改版记录")) { [unowned self] in
             [
+                changelogSection(CWL("1.3.16（基于作者 v1.0.6）"), [
+                    (CWL("问题"), CWL("自适应档固定按 2048×968 源画布，1024×600 / 1024×488 的仪表被缩放变形；没有 AE5i Pro 档；旧栈把 1024×488 回成 480（AE4 Pro 不拉帧）；AE8 MY25 不认「只发开始投屏」；JPEG 文案写「新屏」不准")),
+                    (CWL("修改"), CWL("全系/一代/二代自适应源画布按上报尺寸自动匹配（1:1）；新增「极核 AE5i Pro（2025）」「极核 AE4 Pro（2025）」「极核 AE8 MY25」车型档 + 识别；旧栈 488 原样回；仪表回「不支持」时补发完整握手；JPEG 文案改「部分旧屏只认 JPEG」"))
+                ]),
                 changelogSection(CWL("1.3.15（基于作者 v1.0.6）"), [
                     (CWL("问题"), CWL("ZEEHO-xxxxxx 新固件（如 ZEEHO-2f33a6 / ZEEHO-523172）协商通过却不拉帧（0x72=0）")),
                     (CWL("修改"), CWL("对 HUName 匹配 ZEEHO-[A-Fa-f0-9]{6} 的表改用安卓版握手：回复 supportFunctionEx=1073741952，0x20000 后只发开始投屏（0x20590），不报手机屏幕尺寸/遮罩；CFDL29-* 保持原样"))

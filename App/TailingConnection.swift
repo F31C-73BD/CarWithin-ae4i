@@ -48,6 +48,10 @@ final class TailingConnection: @unchecked Sendable {
     private var reverseControl: TailingSocket?
     /// 极核新固件（HUName = ZEEHO-xxxxxx）：按安卓版握手，发 supportFunctionEx，且 0x20000 后只发开始投屏。
     private var zeehoNewFirmware = false
+    /// 已发过开始投屏（0x20590）。
+    private var zeehoMirrorRequested = false
+    /// 单发开始投屏被「不支持」后，是否已补发完整握手。
+    private var zeehoFallbackSent = false
     private var sentH264Prefix = false
     private var mediaStarted = false
     private var mediaSize: InstrumentFrameSize?
@@ -342,6 +346,18 @@ final class TailingConnection: @unchecked Sendable {
                     reportedUnsupported = true
                     log(CWL("仪表报告不支持某项控制消息，继续核对必要媒体协商"))
                 }
+                // 部分新固件表（如 AE8 MY25）不认「只发 0x20590」的安卓式握手：
+                // 收到「不支持」后补发旧版完整握手，让它连上媒体通道。
+                if zeehoNewFirmware, zeehoMirrorRequested, !zeehoFallbackSent {
+                    zeehoFallbackSent = true
+                    try sendControl(socket, command: 0x204c0, identifier: 1, object: ["state": 0, "msg": ""])
+                    try sendControl(socket, command: 0x20020, identifier: 2, object: phone.display(mode: 2))
+                    try sendControl(socket, command: 0x20030, identifier: 3, object: phone.display(mode: 1))
+                    try socket.write(TailingProtocol.control(0x20050, identifier: 4))
+                    try sendControl(socket, command: 0x205a0, identifier: 5, object: ["isMaskVisible": false])
+                    try sendMirrorControl(socket, start: true, identifier: 6, timeout: 0.25)
+                    log(CWL("仪表不支持单发开始投屏，已补发完整握手（0x204c0/0x20020/0x20030/0x20050/0x205a0/0x20590）"))
+                }
                 continue
             case 0x20021, 0x20031, 0x204c1, 0x20491, 0x20051, 0x20591, 0x205a1, 0x70000001:
                 continue // 回应不再回应，避免往返循环。
@@ -394,6 +410,7 @@ final class TailingConnection: @unchecked Sendable {
         guard reverseControl == nil else { return }
         try sendMirrorControl(socket, start: true, identifier: 6, timeout: 0.25)
         reverseControl = socket
+        zeehoMirrorRequested = true
         log(CWL("极核已发送开始投屏通知"))
         condition.broadcast()
     }

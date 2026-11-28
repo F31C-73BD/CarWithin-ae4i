@@ -28,15 +28,15 @@ func cfmotoNegotiationSmoke() throws {
 }
 
 func zeehoAE6SizeSmoke() throws {
-    for height in [480, 488] {
-        let size = try Zeeho62MediaSize.negotiate(width: 1024, height: height)
-        precondition(size == .standard)
-    }
+    precondition(try Zeeho62MediaSize.negotiate(width: 1024, height: 480) == .standard)
+    // 488 的面板必须原样回 488（回 480 差 8 行，仪表不拉帧）。
+    let ae4Pro = try Zeeho62MediaSize.negotiate(width: 1024, height: 488)
+    precondition(ae4Pro.width == 1024 && ae4Pro.height == 488)
     let ae6 = try Zeeho62MediaSize.negotiate(width: 1024, height: 484)
     precondition(ae6.width == 1024 && ae6.height == 484)
     for (width, height) in [(1024, 515), (1024, 483), (800, 484), (0, 484)] {
         do { _ = try Zeeho62MediaSize.negotiate(width: width, height: height); fatalError("Unsupported legacy size accepted") }
         catch TailingError.protocolFailure { }
     }
-    print("PASS: AE6 native 1024×484; old 480/488 mapping; spring/odd sizes isolated")
+    print("PASS: AE6 native 1024×484; AE4 Pro/AE5i Pro 1024×488; 480 unchanged; spring/odd sizes isolated")
 }

@@ -2403,7 +2403,8 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
                 return
             }
             var config = ReceiverConfiguration(name: nameField.text ?? "CarWithin", address: address,
-                ssid: ssidField.text ?? "", password: password, wifiChannel: channel, audioEnabled: soundOutput != .phone,
+                ssid: ssidField.text ?? "", password: password, wifiChannel: channel,
+                audioEnabled: soundOutput != .phone || outputMode.zeehoProfile != nil,
                 videoOutputPort: outputPort, secureVideoOutputPort: httpsPort,
                 deviceID: ReceiverConfiguration.persistentDeviceID())
             if !restartingAutomatically { autoRestarts = 0; lightLevel = 0; reportedScreen = nil; primaryViewer = nil }
@@ -2447,7 +2448,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
         let addresses = ReceiverConfiguration.localIPv4Addresses()
         if !addresses.contains(ipField.text ?? "") { ipField.text = browserAddress ?? addresses.first }
         var config = ReceiverConfiguration(name: nameField.text ?? "CarWithin", address: ipField.text ?? "",
-            ssid: ssidField.text ?? "", password: password, wifiChannel: channel, audioEnabled: soundOutput != .phone,
+            ssid: ssidField.text ?? "", password: password, wifiChannel: channel, audioEnabled: soundOutput != .phone || outputMode.zeehoProfile != nil,
             videoOutputPort: outputPort, secureVideoOutputPort: httpsPort,
             deviceID: ReceiverConfiguration.persistentDeviceID())
         configureDisplay(&config)
@@ -4314,8 +4315,8 @@ extension ReceiverViewController {
         page(CWL("改版记录")) { [unowned self] in
             [
                 changelogSection(CWL("1.3.17（基于作者 v1.0.6）"), [
-                    (CWL("问题"), CWL("iOS 16 用户反馈「启动本机 CarPlay」连不上、仪表不出画；日志里 iAP2 认证通过但没有 SETUP/RECORD")),
-                    (CWL("修改"), CWL("仅增加诊断日志：启动时记录系统版本/机型标识、配件传输诊断（CoreAccessories 私有方法清单）、CarPlay 启动请求载荷（Wi-Fi/地址/端口）"))
+                    (CWL("问题"), CWL("iOS 16 用户反馈「启动本机 CarPlay」连不上、仪表不出画；iAP2 认证通过但没有 SETUP/RECORD。极核模式被强制「由 iPhone 输出」→ CarPlay 只协商视频、不带音频，iOS 16 建不起来")),
+                    (CWL("修改"), CWL("极核模式默认 audioEnabled=true（CarPlay 协商带上音频，与「随画面传输」一致），iOS 16 可正常启动；另加诊断日志：系统版本/机型标识、CoreAccessories 私有方法清单、CarPlay 启动请求载荷"))
                 ]),
                 changelogSection(CWL("1.3.16（基于作者 v1.0.6）"), [
                     (CWL("问题"), CWL("自适应档固定按 2048×968 源画布，1024×600 / 1024×488 的仪表被缩放变形；没有 AE5i Pro 档；旧栈把 1024×488 回成 480（AE4 Pro 不拉帧）；AE8 MY25 不认「只发开始投屏」；JPEG 文案写「新屏」不准")),

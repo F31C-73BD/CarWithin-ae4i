@@ -1,6 +1,7 @@
 #import "DirectAccessoryTransport.h"
 #import <TargetConditionals.h>
 #import <objc/message.h>
+#import <objc/runtime.h>
 
 @interface DirectAccessoryTransport ()
 @property(nonatomic, strong) id client;

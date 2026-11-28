@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 
 /// Main-queue session for the direct accessory transport.
 final class SameDeviceProbe {

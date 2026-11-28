@@ -1482,7 +1482,9 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
             self.stop()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
                 guard let self, !self.running else { return }
+                self.restartingAutomatically = true
                 self.toggleReceiver()
+                self.restartingAutomatically = false
             }
         }
     }
@@ -1558,7 +1560,9 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
     private func prepareOutputGate() {
         awaitingOutputConnection = waitsForExternalOutput
         outputConnected = false
-        autoReconnectAttempts = 0
+        // 只有用户手动启动时才清零重连计数；自动重连重启时保留计数，
+        // 否则“最多 3 次”永远触发不了，会无限重连。
+        if !restartingAutomatically { autoReconnectAttempts = 0 }
         mismatchFixAttempted = false
     }
 

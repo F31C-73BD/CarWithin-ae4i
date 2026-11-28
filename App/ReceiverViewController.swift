@@ -128,6 +128,18 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
     private let zeehoCard = UIStackView()
     private let zeehoCardStatus = UILabel()
     /// 极核卡片里的实时状态：帧率 / 码率 / 编码档位。
+    /// 车型选择：原生下拉菜单（品牌 → 车型）。
+    private lazy var modelMenuButton: UIButton = {
+        let button = UIButton(type: .system)
+        var config = UIButton.Configuration.plain()
+        config.image = UIImage(systemName: "chevron.up.chevron.down")
+        config.imagePlacement = .trailing
+        config.imagePadding = 6
+        config.contentInsets = .zero
+        button.configuration = config
+        button.showsMenuAsPrimaryAction = true
+        return button
+    }()
     let zeehoStatsLabel = UILabel()
     /// 极核卡片标题（随车型变化：品牌+型号+仪表连接）。
     var zeehoCardTitleLabel: UILabel?
@@ -1291,48 +1303,34 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
 
     private func modelChoiceSection() -> SettingsSection {
         SettingsSection(CWL("车型"), [
-            .page(CWL("车型选择"), icon: ("car.fill", .systemIndigo), detail: { [unowned self] in
-                self.outputMode.title
-            }) { [unowned self] in self.modelCategoryPage() }
+            .control(CWL("车型选择"), icon: ("car.fill", .systemIndigo), modelMenuButton)
         ])
     }
 
-    private func modelCategoryPage() -> SettingsPageController {
-        page(CWL("车型选择")) { [unowned self] in
-            // 直接输出：只有这三项，不再按品牌判断。
-            let directOutputs: [HeadUnitOutput] = [.browser, .carLife, .airPlay]
-            let direct = directOutputs.map { mode -> SettingsRow in
-                var row = SettingsRow.action(mode.title) { [unowned self] in self.choose(mode) }
-                row.checked = { [unowned self] in self.outputMode == mode }
-                return row
+    /// 品牌 → 车型的原生下拉菜单。
+    private func rebuildModelMenu() {
+        modelMenuButton.configuration?.title = outputMode.title
+        let directTitles: [HeadUnitOutput] = [.browser, .carLife, .airPlay]
+        let directItems = directTitles.map { mode in
+            UIAction(title: mode.title, state: outputMode == mode ? .on : .off) { [weak self] _ in
+                self?.choose(mode)
             }
-            let brands = HeadUnitBrand.allCases.map { brand in
-                SettingsRow.page(brand.title, icon: (brand.symbol, brand.color), detail: { [unowned self] in
-                    self.brand(of: self.outputMode) == brand ? self.outputMode.title : nil
-                }) { [unowned self] in self.modelListPage(brand) }
-            }
-            return [
-                SettingsSection(CWL("直接输出"), direct),
-                SettingsSection(CWL("品牌"), brands)
-            ]
         }
-    }
-
-    private func modelListPage(_ brand: HeadUnitBrand) -> SettingsPageController {
-        page(brand.title) { [unowned self] in
-            let directOutputs: [HeadUnitOutput] = [.browser, .carLife, .airPlay]
-            let rows = HeadUnitOutput.menuOrder
+        var children: [UIMenuElement] = [UIMenu(title: CWL("直接输出"), options: .displayInline, children: directItems)]
+        for brand in HeadUnitBrand.allCases {
+            let items = HeadUnitOutput.menuOrder
                 .filter { self.brand(of: $0) == brand }
-                .map { mode -> SettingsRow in
-                    var row = SettingsRow.action(mode.title) { [unowned self] in self.choose(mode) }
-                    row.checked = { [unowned self] in self.outputMode == mode }
-                    return row
+                .map { mode in
+                    UIAction(title: mode.title, state: outputMode == mode ? .on : .off) { [weak self] _ in
+                        self?.choose(mode)
+                    }
                 }
-            let footer = rows.isEmpty
-                ? CWL("暂无车型。")
-                : CWL("选择后立即生效，并自动返回。")
-            return [SettingsSection(nil, footer: footer, rows)]
+            guard !items.isEmpty else { continue }
+            children.append(UIMenu(title: brand.title,
+                                   image: UIImage(systemName: brand.symbol),
+                                   children: items))
         }
+        modelMenuButton.menu = UIMenu(title: "", children: children)
     }
 
     private func choose(_ mode: HeadUnitOutput) {
@@ -1345,6 +1343,7 @@ final class ReceiverViewController: UIViewController, CLLocationManagerDelegate 
     // MARK: 极核卡片：标题与实时状态
 
     private func updateConnectionCardTitle() {
+        rebuildModelMenu()
         zeehoCardTitleLabel?.text = "\(outputMode.title)仪表连接"
     }
 

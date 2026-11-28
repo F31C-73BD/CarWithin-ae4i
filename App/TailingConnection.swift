@@ -46,6 +46,8 @@ final class TailingConnection: @unchecked Sendable {
     private var signedHUID: Data?
     private var video: TailingSocket?
     private var reverseControl: TailingSocket?
+    /// 极核新固件（HUName = ZEEHO-xxxxxx）：按安卓版握手，发 supportFunctionEx，且 0x20000 后只发开始投屏。
+    private var zeehoNewFirmware = false
     private var sentH264Prefix = false
     private var mediaStarted = false
     private var mediaSize: InstrumentFrameSize?
@@ -303,15 +305,24 @@ final class TailingConnection: @unchecked Sendable {
                 condition.lock(); let identity = self.identity; condition.unlock()
                 guard let identity else { throw TailingError.closed }
                 let signature = try identity.sign(huid)
-                payload = try TailingProtocol.json([
+                // 极核新固件（ZEEHO-xxxxxx）用安卓版握手：supportFunctionEx，0x20000 后只发开始投屏。
+                let newFirmware = isZeeho && Self.zeehoNewFirmware(name)
+                condition.lock(); zeehoNewFirmware = newFirmware; condition.unlock()
+                var info: [String: Any] = [
                     "pxcVersion": "1.0.2", "phoneUUID": identity.phoneID,
                     "phoneBrand": "iPhone", "phoneModel": phone.model,
                     "phoneOsVersion": phone.systemVersion, "phoneOs": "iOS",
                     "package": phone.package, "versionCode": phone.versionCode, "token": 0,
                     "pubkey": try identity.publicKey().base64EncodedString(),
                     "encryptedHUID": signature.base64EncodedString(), "bluetoothName": "",
-                    "supportH264IFrame": isZeeho, "supportFunction": 128, "mirrorRequestReconnect": true
-                ])
+                    "supportH264IFrame": isZeeho, "mirrorRequestReconnect": true
+                ]
+                if newFirmware {
+                    info["supportFunctionEx"] = 1_073_741_952
+                } else {
+                    info["supportFunction"] = 128
+                }
+                payload = try TailingProtocol.json(info)
                 try replyControl(socket, request, payload: payload)
                 condition.lock()
                 self.huid = huid; signedHUID = signature; condition.broadcast()
@@ -349,12 +360,19 @@ final class TailingConnection: @unchecked Sendable {
             try replyControl(socket, request, payload: payload)
             if request.command == 0x20000 && !reverseStarted {
                 reverseStarted = true
-                try sendControl(socket, command: 0x204c0, identifier: 1, object: ["state": 0, "msg": ""])
-                try sendControl(socket, command: 0x20020, identifier: 2, object: phone.display(mode: 2))
-                try sendControl(socket, command: 0x20030, identifier: 3, object: phone.display(mode: 1))
-                try socket.write(TailingProtocol.control(0x20050, identifier: 4))
-                try sendControl(socket, command: 0x205a0, identifier: 5, object: ["isMaskVisible": false])
-                if isZeeho { try startZeehoMirror(socket) }
+                condition.lock(); let newFirmware = zeehoNewFirmware; condition.unlock()
+                if newFirmware {
+                    // 安卓版握手：只发开始投屏，不报手机屏幕尺寸/遮罩，避免把新固件表搞懵。
+                    try startZeehoMirror(socket)
+                    log(CWL("极核新固件：只发送开始投屏通知（省略屏幕尺寸/遮罩）"))
+                } else {
+                    try sendControl(socket, command: 0x204c0, identifier: 1, object: ["state": 0, "msg": ""])
+                    try sendControl(socket, command: 0x20020, identifier: 2, object: phone.display(mode: 2))
+                    try sendControl(socket, command: 0x20030, identifier: 3, object: phone.display(mode: 1))
+                    try socket.write(TailingProtocol.control(0x20050, identifier: 4))
+                    try sendControl(socket, command: 0x205a0, identifier: 5, object: ["isMaskVisible": false])
+                    if isZeeho { try startZeehoMirror(socket) }
+                }
                 startHeartbeat(socket)
             }
         }
@@ -479,6 +497,11 @@ final class TailingConnection: @unchecked Sendable {
             }
             try socket.write(TailingProtocol.auxiliary(response, token: request.token, payload: payload))
         }
+    }
+
+    /// 极核新固件：HUName 形如 `ZEEHO-` + 6 位十六进制（安卓版支持的那类表）。
+    static func zeehoNewFirmware(_ name: String) -> Bool {
+        name.range(of: "^ZEEHO-[A-Fa-f0-9]{6}$", options: .regularExpression) != nil
     }
 
     private func checkLocked() throws {

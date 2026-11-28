@@ -4245,6 +4245,10 @@ extension ReceiverViewController {
     fileprivate func changelogPage() -> SettingsPageController {
         page(CWL("改版记录")) { [unowned self] in
             [
+                changelogSection(CWL("1.3.15（基于作者 v1.0.6）"), [
+                    (CWL("问题"), CWL("ZEEHO-xxxxxx 新固件（如 ZEEHO-2f33a6 / ZEEHO-523172）协商通过却不拉帧（0x72=0）")),
+                    (CWL("修改"), CWL("对 HUName 匹配 ZEEHO-[A-Fa-f0-9]{6} 的表改用安卓版握手：回复 supportFunctionEx=1073741952，0x20000 后只发开始投屏（0x20590），不报手机屏幕尺寸/遮罩；CFDL29-* 保持原样"))
+                ]),
                 changelogSection(CWL("1.3.14（基于作者 v1.0.6）"), [
                     (CWL("问题"), CWL("切换车型后仍显示上一台仪表的信息；具体车型会被按上报尺寸自动改选；AE4 MAX 输出设置页空白")),
                     (CWL("修改"), CWL("按 HUName + 上报尺寸显示「识别：XX」（只显示不自动切）；切车型清空旧状态；具体车型不再自动换车型；按能力放开帧率/码率/档位控制；全系/二代自适应默认 25 FPS；AE4 MAX 补上控制项"))

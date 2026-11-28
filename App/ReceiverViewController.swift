@@ -2696,6 +2696,19 @@ extension ReceiverViewController {
         instrumentAutoStartSwitch.isOn = UserDefaults.standard.bool(forKey: "experimentalInstrumentAutoStart")
         instrumentAutoStartSwitch.addTarget(self, action: #selector(instrumentAutoStartChanged), for: .valueChanged)
         let defaults = UserDefaults.standard
+        if !defaults.bool(forKey: "didApplyDefaultBaselineProfile") {
+            // 统一默认编码档位为 Baseline：删掉旧选择，让默认值生效（仍可手动改成 Main）。
+            defaults.removeObject(forKey: "zeehoAE4iEncodeProfile")
+            defaults.removeObject(forKey: "zeehoSEPlusEncodeProfile")
+            defaults.removeObject(forKey: "cfmotoEncodeProfile")
+            defaults.set(true, forKey: "didApplyDefaultBaselineProfile")
+        }
+        if !defaults.bool(forKey: "didApplyDefaultFrameRate25") {
+            // 统一默认：未手动设置过的帧率回到 25 FPS（旧协议栈另说，本身固定 25）。
+            defaults.removeObject(forKey: "zeehoSEPlusFrameRate")
+            defaults.removeObject(forKey: "zeehoAE4iFrameRate")
+            defaults.set(true, forKey: "didApplyDefaultFrameRate25")
+        }
         if !defaults.bool(forKey: "didApplyLeftHandDefaultV2") {
             defaults.set(false, forKey: "rightHandDrive"); defaults.set(true, forKey: "didApplyLeftHandDefaultV2")
         }
@@ -2759,8 +2772,8 @@ extension ReceiverViewController {
         zeehoSEPlusAutomaticSwitch.addTarget(self, action: #selector(zeehoAutomaticAddressChanged), for: .valueChanged)
         zeeho62AutomaticSwitch.isOn = defaults.object(forKey: "zeeho62AutomaticAddress") as? Bool ?? true
         zeeho62AutomaticSwitch.addTarget(self, action: #selector(zeehoAutomaticAddressChanged), for: .valueChanged)
-        let savedZeehoFrameRate = ZeehoFrameRate(rawValue: defaults.integer(forKey: "zeehoSEPlusFrameRate")) ?? .fps30
-        zeehoSEPlusFrameRateControl.selectedSegmentIndex = ZeehoFrameRate.allCases.firstIndex(of: savedZeehoFrameRate) ?? 1
+        let savedZeehoFrameRate = ZeehoFrameRate(rawValue: defaults.integer(forKey: "zeehoSEPlusFrameRate")) ?? .fps25
+        zeehoSEPlusFrameRateControl.selectedSegmentIndex = ZeehoFrameRate.allCases.firstIndex(of: savedZeehoFrameRate) ?? 0
         zeehoSEPlusFrameRateControl.addTarget(self, action: #selector(zeehoFrameRateChanged), for: .valueChanged)
         zeehoSEPlusCanvasControl.selectedSegmentIndex = (ZeehoCanvas(rawValue: defaults.integer(forKey: "zeehoSEPlusCanvas")) ?? .wide).rawValue
         zeehoSEPlusCanvasControl.addTarget(self, action: #selector(zeehoVideoSettingsChanged), for: .valueChanged)
